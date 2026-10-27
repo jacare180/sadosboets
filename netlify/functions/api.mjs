@@ -24,6 +24,30 @@ const SEED = {
   "votes/cape-agulhas/Beny": { v: 1 },
 };
 
+const STAY_FILL = {
+  "stays/stay1": {
+    name: "Sea Point, new build with braai terrace", area: "Sea Point", rating: "4.74 (31)",
+    priceTotal: 11881, currency: "BRL", guests: 4, bedrooms: 2, beds: 2, baths: 2,
+    amenities: { Kitchen: true, Wifi: true, "Free parking": true, Washer: true, Workspace: true, "Braai (BBQ)": true, "Mountain view": true },
+    photos: [{ url: "/stays/s1-1.jpg" }, { url: "/stays/s1-2.jpg" }, { url: "/stays/s1-3.jpg" }],
+    note: "1 king + 1 queen. Private balcony with braai and a partial Lion's Head view, 5 min walk to the Promenade. 1 garage spot. A few reviews mention road noise. Free cancellation before 10 Mar. Price seen 27 Oct (down from R$13,163).",
+  },
+  "stays/stay3": {
+    name: "Bantry Bay, sea view balcony", area: "Bantry Bay", rating: "4.85 (46)",
+    priceTotal: 1907, currency: "USD", guests: 4, bedrooms: 2, beds: 3, baths: 2,
+    amenities: { Kitchen: true, Wifi: true, "Free parking": true, Workspace: true, "Sea view": true },
+    photos: [{ url: "/stays/s3-1.jpg" }, { url: "/stays/s3-2.jpg" }, { url: "/stays/s3-3.jpg" }],
+    note: "1 king + 2 singles. Guest favourite, Superhost. Private balcony facing the sea, dishwasher, Nespresso. 5 min walk to Saunders' Rocks and Queens beach. Free cancellation before 1 Mar. Price seen 27 Oct.",
+  },
+  "stays/stay4": {
+    name: "Three Anchor Bay, private garden", area: "Three Anchor Bay", rating: "4.9 (314)",
+    guests: 4, bedrooms: 2, beds: 3, baths: 1,
+    amenities: { Kitchen: true, Wifi: true, "Free parking": true },
+    photos: [{ url: "/stays/s4-1.jpg" }, { url: "/stays/s4-2.jpg" }, { url: "/stays/s4-3.jpg" }],
+    note: "NOT AVAILABLE for 15 to 24 Mar (Airbnb shows the dates blocked, 27 Oct). 1 queen + 2 singles, only 1 bathroom. Guest favourite, top 10%. Private garden with outdoor dining, garage spot, 5 min walk to the beach.",
+  },
+};
+
 async function state() {
   const s = store();
   let { blobs } = await s.list();
@@ -41,6 +65,21 @@ async function state() {
       if (!keys.includes("config/trip")) keys.push("config/trip");
     }
     await s.setJSON("meta/bach200", { at: Date.now() });
+  }
+  // one-time: listing details from the Airbnb pages (27 Oct 2026); only fills fields still empty
+  if (!keys.includes("meta/stays-oct27")) {
+    const empty = (v) => v == null || v === "" || (typeof v === "object" && !Object.keys(v).length);
+    await Promise.all(Object.entries(STAY_FILL).map(async ([k, fill]) => {
+      const cur = await s.get(k, { type: "json" }).catch(() => null);
+      if (!cur) return;
+      const next = { ...cur };
+      // a field still holding its seed placeholder counts as empty; currency only moves with the price it belongs to
+      const open = (f) => empty(cur[f]) || cur[f] === SEED[k]?.[f];
+      for (const [f, v] of Object.entries(fill)) if (f !== "currency" && open(f)) next[f] = v;
+      if (fill.currency && open("priceTotal")) next.currency = fill.currency;
+      await s.setJSON(k, next);
+    }));
+    await s.setJSON("meta/stays-oct27", { at: Date.now() });
   }
   // keep the log short
   const logKeys = keys.filter((k) => k.startsWith("log/")).sort().reverse();
