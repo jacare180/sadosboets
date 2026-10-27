@@ -282,10 +282,11 @@ table.matrix{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
 @media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:18px;max-height:84vh}}
 @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.sheet{animation:none}}
-.sheet-h{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+/* header stays pinned while a long sheet scrolls, so Close is always in reach */
+.sheet-h{display:flex;align-items:center;gap:10px;position:sticky;top:-18px;z-index:2;background:var(--surface);margin:-18px -18px 14px;padding:14px 18px 10px}
 .sheet-h h2{flex:1}
-.x{border:0;background:var(--sunk);width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center}
-.x svg{width:16px;height:16px}
+.x{border:0;background:var(--sunk);color:var(--fg);width:44px;height:44px;padding:0;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;-webkit-appearance:none;appearance:none}
+.x svg{width:22px;height:22px;flex:none}
 .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;min-width:0}
 .field label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
 .field input,.field select,.field textarea{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
