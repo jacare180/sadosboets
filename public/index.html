@@ -238,6 +238,7 @@ h3{font-size:16px;margin:0;font-weight:700;line-height:1.25}
 .btn.on-ok{background:var(--good);border-color:var(--good);color:#fff}
 .btn.on-no{background:var(--bad);border-color:var(--bad);color:#fff}
 .btn.on-ink{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.price-lvl{font-weight:600;color:var(--mute);letter-spacing:.05em}
 .pi.out-me{border-style:dashed;background:transparent}
 .planned button{margin-left:auto;border:0;background:none;color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:3px;font-size:13px}
 .empty{padding:28px 18px;text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:var(--r)}
@@ -366,13 +367,14 @@ const STEEN="Steen";
 /* roles come from the invite link; the API enforces the same rules, this only shapes the screens */
 const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment","approve","plan","going"],locals:["suggest","comment","verdict","going"],public:[]};
 const VERDICTS=[["must","Must do"],["skip","Skip it"],["trap","Tourist trap"]];
-const ROLE_VIEWS={boets:["now","plan","ideas","stays","budget"],steen:["now","plan","ideas","stays"],locals:["now","plan","ideas","stays"],public:["now","plan"]};
+const ROLE_VIEWS={boets:["now","plan","ideas","eat","stays","budget"],steen:["now","plan","ideas","eat","stays"],locals:["now","plan","ideas","eat","stays"],public:["now","plan"]};
 const ZAR_PER_USD=16.6, BRL_PER_USD=5.2;
 const RATE_NOTE="1 USD = R16.60 (mid-market close, 26 Oct 2026, Trading Economics) · 1 USD = R$5.20 (rate fixed by the group)";
 const NIGHTS=9; // Airbnb 15 → 24 Mar
 const FLIGHT_BRL=5000;
 const SLOTS=[["morning","Morning"],["afternoon","Afternoon"],["evening","Evening"]];
-const TYPES=["Jike","Beach","Wine","Food","Nightlife","Culture","Adventure","Road trip","Chill"];
+const TYPES=["Jike","Beach","Wine","Nightlife","Culture","Adventure","Road trip","Chill"];
+const MEALS=[["afternoon","Lunch","12:30","14:30"],["evening","Dinner","19:30","22:00"]];
 const AMEN=["Pool","Air conditioning","Wifi","Free parking","Kitchen","Washer","Sea view","Mountain view","24h security","Braai (BBQ)","Hot tub","Workspace"];
 const DAYS=[];for(let d=10;d<=24;d++){DAYS.push("2027-03-"+String(d).padStart(2,"0"))}
 const AWAY=["2027-03-12","2027-03-13","2027-03-14"];
@@ -436,11 +438,12 @@ const I={
  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
  info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+ eat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2 1.5-3 4-3 7v4h3"/></svg>',
  run:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="4" r="2"/><path d="M6 21l3-6 3 2v4M8 11l3-3 4 2 3 3M5 13l3-2"/></svg>',
 };
 
 /* ---------- state ---------- */
-const S={ideas:[],stays:[],log:[],config:{},view:"now",me:null,cur:"ZAR",db:null,assets:null,online:null,ready:false,ideaFilter:"all",ideaType:"",ideaSort:"score"};
+const S={ideas:[],eats:[],eatFilter:"all",eatArea:"",stays:[],log:[],config:{},view:"now",me:null,cur:"ZAR",db:null,assets:null,online:null,ready:false,ideaFilter:"all",ideaType:"",ideaSort:"score"};
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 /* invite link: keep the code on this device, then drop it from the address bar so a copied URL is always the public one */
 (()=>{try{const u=new URL(location.href);const k=u.searchParams.get("k");if(k){ls.set("lcds_k",k);u.searchParams.delete("k");history.replaceState(null,"",u.pathname+u.search+u.hash)}}catch(e){}})();
@@ -488,6 +491,9 @@ function halfDay(){return S.config.halfDay||null}
 function bookedStay(){return S.stays.find(s=>s.booked)}
 function stayZAR(s){return s&&s.priceTotal!=null&&s.priceTotal!==""?toZAR(+s.priceTotal,s.currency||"ZAR"):null}
 function planned(){return liveIdeas().filter(i=>i.plan&&i.plan.day)}
+const liveEats=()=>S.eats.filter(e=>!e.deleted);
+const plannedEats=()=>liveEats().filter(e=>e.plan&&e.plan.day);
+const mealName=slot=>(MEALS.find(m=>m[0]===slot)||[,"Meal"])[1];
 function totals(){
   const flight=toZAR(FLIGHT_BRL,"BRL");
   const bs=bookedStay(); const stay=bs?stayZAR(bs):null; const stayPP=stay!=null?stay/4:null;
@@ -575,6 +581,7 @@ async function undoLog(l){
   if(!writable())return;
   await run(async()=>{
     if(l.kind==="plan")await S.db.doc("ideas/"+l.ideaId).update({plan:l.prev||null});
+    if(l.kind==="eatplan")await S.db.doc("eats/"+l.eatId).update({plan:l.prev||null});
     if(l.kind==="delete")await S.db.doc("ideas/"+l.ideaId).update({deleted:false});
     if(l.kind==="book"){for(const s of S.stays){const want=s.id===l.prevId;if(!!s.booked!==want)await S.db.doc("stays/"+s.id).update({booked:want})}}
     if(l.kind==="half")await S.db.doc("config/trip").set({...S.config,halfDay:l.prev||null});
@@ -584,7 +591,7 @@ async function undoLog(l){
 }
 
 /* ---------- nav ---------- */
-const VIEWS=[["now","Now"],["plan","Plan"],["ideas","Ideas"],["stays","Stays"],["budget","Budget"]];
+const VIEWS=[["now","Now"],["plan","Plan"],["ideas","Ideas"],["eat","Eat"],["stays","Stays"],["budget","Budget"]];
 function nav(){
   const pend=S.me&&can("vote")?liveIdeas().filter(i=>!myVote(i)).length:0;
   const html=VIEWS.filter(([k])=>ROLE_VIEWS[S.role].includes(k)).map(([k,l])=>[k,k==="stays"&&!isBoet()?"Our stay":l]).map(([k,l])=>`<a href="#${k}" ${S.shown===k?'aria-current="page"':""}>${I[k]}<span>${l}</span>${k==="ideas"&&pend?`<em class="badge" aria-label="${pend} to vote">${pend}</em>`:""}</a>`).join("");
@@ -666,10 +673,12 @@ function logRow(l){
   // built per kind only: "next" is a {day,slot} for plan entries but a date string for half entries
   const when=d=>typeof d==="string"?dW(d)+" "+dNum(d):"";
   const what={
+    eatplan:()=>l.next&&l.next.day?`booked <b>${esc(l.title)}</b> for ${mealName(l.next.slot).toLowerCase()} on ${when(l.next.day)}`:`took <b>${esc(l.title)}</b> off the plan`,
+    eat:()=>`Juggested <b>${esc(l.title)}</b> in Eat`,
     plan:()=>l.next&&l.next.day?`added <b>${esc(l.title)}</b> to ${when(l.next.day)} ${slotName(l.next.slot).toLowerCase()}`:`removed <b>${esc(l.title)}</b> from the plan`,
     idea:()=>`suggested <b>${esc(l.title)}</b>`,delete:()=>`deleted <b>${esc(l.title)}</b>`,book:()=>`marked <b>${esc(l.title)}</b> as our stay`,stay:()=>`updated <b>${esc(l.title)}</b>`,
     half:()=>`moved the half marathon to ${typeof l.next==="string"?when(l.next):"unscheduled"}`,bach:()=>`set the Bachelors cost`}[l.kind]?.()||esc(l.kind);
-  const canUndo=["plan","delete","book","half"].includes(l.kind)&&!l.undone;
+  const canUndo=["plan","eatplan","delete","book","half"].includes(l.kind)&&!l.undone;
   return `<div class="logrow ${l.undone?"undone":""}"><span class="who">${esc((l.who||"?").slice(0,2))}</span><div class="t">${esc(l.who||"Someone")} ${what}${l.undone?" (undone)":""}<time>${ago(l.at)}</time></div>${canUndo?`<button class="btn sm ghost" type="button" data-undo="${l.id}">Undo</button>`:""}</div>`;
 }
 const outOf=i=>BOETS.filter(b=>(i.votes||{})[b]===-1);
@@ -695,9 +704,10 @@ function viewPlan(){
 function dayCard(d){
   const fx=fixedFor(d); const away=AWAY.includes(d); const blocked=BLOCKED[d]||[];
   const items=planned().filter(i=>i.plan.day===d);
+  const meals=plannedEats().filter(e=>e.plan.day===d);
   const dayCost=items.reduce((a,i)=>a+(+i.priceZAR||0),0);
   const hd=halfDay()===d;
-  const label=away?"Away · Bachelors":fx.length&&!fx[0].soft?fx[0].title:items.length?items.length+" planned":"Open day";
+  const label=away?"Away · Bachelors":fx.length&&!fx[0].soft?fx[0].title:items.length+meals.length?items.length+meals.length+" planned":"Open day";
   return `<section class="card day" id="plan-${d}">
     <div class="day-h"><div class="n">${dNum(d)}</div><div><div class="w">${dObj(d).toLocaleDateString("en-US",{weekday:"long"})} · March</div><div class="lbl">${esc(label)}</div></div>
       <div class="sum">${dayCost?price(dayCost):""}</div></div>
@@ -712,6 +722,7 @@ function dayCard(d){
       const its=items.filter(i=>i.plan.slot===k); const bl=blocked.includes(k);
       return `<div class="slot ${bl?"blocked":""}"><div class="sl">${l}</div>
         ${its.map(i=>`<div class="pi ${outMe(i)?"out-me":""}"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"}${isBoet()?` · ${score(i)>0?"+":""}${score(i)} votes`:""}</small>${outLine(i)}${badges(i)}${goingLine(i)||goingBtn(i)?`<div class="opt">${goingLine(i)}${goingBtn(i)}</div>`:""}</div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}${canUnplan(i)?`<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button>`:""}</div>`).join("")}
+        ${meals.filter(e=>e.plan.slot===k).map(mealRow).join("")}
         ${bl?"":can("edit")||can("plan")?`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`:its.length?"":`<div class="small muted">Open</div>`}
       </div>`}).join("")}</div>`}
   </section>`;
@@ -768,6 +779,115 @@ function ideaCard(i){
       ${guestActions(i)}
     </div>
   </article>`;
+}
+
+/* ---------- Eat: restaurant tips from boets, Steen and locals ---------- */
+const priceLvl=p=>p?"$".repeat(p):"";
+const spotLink=e=>/^https?:/.test(e.link||"")?e.link:maps([e.name,e.area,"Cape Town"].filter(Boolean).join(", "));
+function viewEat(){
+  const all=liveEats(); let list=all;
+  const f=S.eatFilter;
+  if(f==="want")list=list.filter(e=>(e.want||[]).includes(S.me));
+  if(f==="local")list=list.filter(e=>isLocalName(e.by));
+  if(f==="book")list=list.filter(e=>e.booking);
+  if(f==="planned")list=list.filter(e=>e.plan);
+  if(S.eatArea)list=list.filter(e=>e.area===S.eatArea);
+  list=[...list].sort((a,b)=>(b.want||[]).length-(a.want||[]).length||(b.createdAt||0)-(a.createdAt||0));
+  const areas=[...new Set(all.map(e=>e.area).filter(Boolean))].sort();
+  const F=[["all","All"],["want","I want to go"],["local","Local picks"],["book","Book ahead"],["planned","In the plan"]];
+  return `${banner()}
+  <div class="page-head"><div class="grow"><div class="eyebrow">${all.length} ${all.length===1?"spot":"spots"} · tips from the boets, Steen and the locals</div><h1>Eat</h1>
+    <p class="lead">Where to eat and drink in Cape Town. Juggest a spot, say what to order, and tap Want to go on the ones you like.</p></div>
+    <button class="btn hot" type="button" data-act="neweat">${I.plus} Juggest a spot</button></div>
+  <div class="toolbar">
+    <div class="chips" role="group" aria-label="Filter">${F.map(([k,l])=>`<button type="button" class="chip" aria-pressed="${f===k}" data-eatfilter="${k}">${l}</button>`).join("")}</div>
+    ${areas.length>1?`<div class="chips" role="group" aria-label="Area"><button type="button" class="chip" aria-pressed="${!S.eatArea}" data-eatarea="">Anywhere</button>${areas.map(a=>`<button type="button" class="chip" aria-pressed="${S.eatArea===a}" data-eatarea="${esc(a)}">${esc(a)}</button>`).join("")}</div>`:""}
+  </div>
+  ${!S.ready?`<div class="empty"><b>Loading spots…</b></div>`
+   :list.length?`<div class="grid three">${list.map(eatCard).join("")}</div>`
+   :`<div class="empty"><b>${all.length?"Nothing matches this filter":"No spots yet"}</b>${all.length?"Try another filter.":"Be the first to Juggest one."}</div>`}`;
+}
+function eatCard(e){
+  const nc=Object.keys(e.comments||{}).length; const w=e.want||[]; const mine=w.includes(S.me);
+  return `<article class="card idea">
+    <div class="idea-b">
+      <div class="idea-top"><div class="t">${e.cuisine?`<span class="tag">${esc(e.cuisine)}</span>`:""}<h3>${esc(e.name)}</h3></div>${e.price?`<span class="num price-lvl">${priceLvl(e.price)}</span>`:""}</div>
+      <div class="meta">${e.area?`<span>${I.pin}<a href="${esc(spotLink(e))}" target="_blank" rel="noopener">${esc(e.area)}</a></span>`:`<span>${I.pin}<a href="${esc(spotLink(e))}" target="_blank" rel="noopener">Map</a></span>`}<span>by ${esc(e.by||"?")}</span></div>
+      ${e.order?`<p><b>What to order:</b> ${esc(e.order)}</p>`:""}
+      ${e.note?`<p>${esc(e.note)}</p>`:""}
+      ${e.booking||isLocalName(e.by)?`<div class="badges">${isLocalName(e.by)?`<span class="tag ink">Local pick</span>`:""}${e.booking?`<span class="tag hot">Book ahead</span>`:""}</div>`:""}
+    </div>
+    ${e.plan?`<div class="planned">${I.plan}<span>In the plan · ${mealName(e.plan.slot)} on ${dW(e.plan.day)} ${dNum(e.plan.day)}</span>${can("edit")?`<button type="button" data-unplaneat="${e.id}">Jemove</button>`:""}</div>`:""}
+    <div class="idea-f">
+      ${w.length?`<span class="small muted">Want to go: ${w.map(esc).join(", ")}</span>`:""}
+      <div class="row" style="width:100%">
+        <button class="btn sm ghost" type="button" data-eatcomments="${e.id}">${I.chat}${nc||""} ${nc===1?"comment":"comments"}</button>
+        ${!e.plan&&can("edit")?`<button class="btn sm" type="button" data-planeat="${e.id}">${I.plus}Jadd</button>`:""}
+        ${can("edit")?`<button class="btn sm ghost" type="button" data-editeat="${e.id}" aria-label="Edit">${I.edit}</button>`:""}
+        <button class="btn sm right ${mine?"on-ink":""}" type="button" data-want="${e.id}" aria-pressed="${mine}">${mine?I.check+"Want to go":"Want to go"}</button>
+      </div>
+    </div>
+  </article>`;
+}
+function mealRow(e){
+  const [,label,a,b]=MEALS.find(m=>m[0]===e.plan.slot)||[,"Meal","19:30","22:00"];
+  const cal=gcal({title:`${label} at ${e.name}`,day:e.plan.day,start:a,end:b,place:[e.name,e.area,"Cape Town"].filter(Boolean).join(", "),details:[e.order?"What to order: "+e.order:"",e.booking?"Book ahead":""].filter(Boolean).join("\n")});
+  return `<div class="pi"><div class="t"><b>${esc(label)} · ${esc(e.name)}</b><small>${[e.area,priceLvl(e.price)].filter(Boolean).map(esc).join(" · ")||"Restaurant"}</small>${(e.want||[]).length&&S.role!=="public"?`<div class="opt"><span class="small muted">Want to go: ${e.want.map(esc).join(", ")}</span></div>`:""}</div>${calBtn(cal,`Jadd ${label} at ${e.name} to Google Calendar`)}${can("edit")?`<button class="btn sm ghost" type="button" data-unplaneat="${e.id}" aria-label="Remove ${esc(e.name)} from the plan">Jemove</button>`:""}</div>`;
+}
+async function toggleWant(e){
+  if(!writable("suggest"))return;
+  const on=(e.want||[]).includes(S.me);
+  await run(()=>S.db.doc("eats/"+e.id).update({want:{by:S.me,in:!on}}));
+}
+async function setEatPlan(e,next,silent){
+  if(!writable("edit"))return;
+  const prev=e.plan||null;
+  await run(async()=>{
+    await S.db.doc("eats/"+e.id).update({plan:next});
+    await addLog({kind:"eatplan",eatId:e.id,title:e.name,prev,next});
+    if(!silent)toast(next?`${mealName(next.slot)} on ${dW(next.day)} ${dNum(next.day)}`:"Removed from the plan",()=>setEatPlan({...e,plan:next},prev,true));
+  });
+}
+function eatPlanSheet(e){
+  let day=null,slot=null;
+  const body=()=>`<p class="muted" style="margin-top:0"><b style="color:var(--fg)">${esc(e.name)}</b> · pick a day, then lunch or dinner.</p>
+    <div class="daygrid">${DAYS.map(d=>`<button type="button" data-d="${d}" ${AWAY.includes(d)?"disabled":""} aria-pressed="${day===d}"><span>${dW(d)}</span><b>${dNum(d)}</b></button>`).join("")}</div>
+    ${day?`<div class="slotpick">${MEALS.map(([k,l])=>`<button type="button" data-s="${k}" ${slotFree(day,k)?"":"disabled"} aria-pressed="${slot===k}">${l}</button>`).join("")}</div>`:""}
+    <div class="row" style="margin-top:16px"><button class="btn primary" type="button" id="go" ${day&&slot?"":"disabled"}>Jadd to the plan</button></div>`;
+  openSheet("Jadd to the plan",body(),el=>{
+    el.addEventListener("click",ev=>{const b=ev.target.closest("button");if(!b||b.disabled)return;
+      if(b.dataset.d){day=b.dataset.d;slot=null;el.innerHTML=body()}
+      else if(b.dataset.s){slot=b.dataset.s;el.innerHTML=body()}
+      else if(b.id==="go"){closeSheet();setEatPlan(e,{day,slot})}});
+  });
+}
+function eatSheet(spot){
+  const e=spot||{};
+  openSheet(spot?"Edit spot":"Juggest a spot",`<form id="ef">
+    <div class="field"><label for="e-name">Name</label><input id="e-name" required maxlength="80" value="${esc(e.name||"")}" placeholder="e.g. The Pot Luck Club"></div>
+    <div class="frow"><div class="field"><label for="e-cuisine">Food</label><input id="e-cuisine" maxlength="40" value="${esc(e.cuisine||"")}" placeholder="Seafood, braai, sushi…"></div>
+      <div class="field"><label for="e-area">Area</label><input id="e-area" maxlength="40" value="${esc(e.area||"")}" placeholder="Woodstock"></div></div>
+    <div class="frow"><div class="field"><label for="e-price">Price</label><select id="e-price">${[["","Not sure"],["1","$ cheap"],["2","$$"],["3","$$$"],["4","$$$$ splurge"]].map(([v,l])=>`<option value="${v}" ${String(e.price||"")===v?"selected":""}>${l}</option>`).join("")}</select></div>
+      <div class="field"><label for="e-book">Booking</label><select id="e-book"><option value="">Walk in is fine</option><option value="1" ${e.booking?"selected":""}>Book ahead</option></select></div></div>
+    <div class="field"><label for="e-link">Google Maps or Instagram link</label><input id="e-link" value="${esc(e.link||"")}" placeholder="https://…"></div>
+    <div class="field"><label for="e-order">What to order</label><input id="e-order" maxlength="200" value="${esc(e.order||"")}" placeholder="The tuna tartare"></div>
+    <div class="field"><label for="e-note">Why it's good</label><textarea id="e-note" maxlength="400">${esc(e.note||"")}</textarea></div>
+    <div class="row"><button class="btn primary" type="submit">${spot?"Save":"Juggest it"}</button>${spot&&can("edit")?`<button class="btn ghost right" type="button" id="edel" style="color:var(--bad)">Delete spot</button>`:""}</div>
+  </form>`,el=>{
+    el.querySelector("#ef").addEventListener("submit",async ev=>{ev.preventDefault();if(!writable(spot?"edit":"suggest"))return;
+      const g=id=>el.querySelector(id).value.trim();
+      const data={name:g("#e-name"),cuisine:g("#e-cuisine"),area:g("#e-area"),price:g("#e-price")?+g("#e-price"):null,booking:g("#e-book")==="1",link:g("#e-link"),order:g("#e-order"),note:g("#e-note")};
+      if(!data.name)return;
+      closeSheet();
+      await run(async()=>{
+        if(spot){await S.db.doc("eats/"+spot.id).update(data);toast("Saved")}
+        else{await S.db.collection("eats").add({...data,by:S.me,createdAt:Date.now(),plan:null,deleted:false,want:{by:S.me,in:true}});
+          await addLog({kind:"eat",title:data.name});toast("Juggested. You're on the Want to go list.")}
+      });
+    });
+    const del=el.querySelector("#edel");if(del)del.onclick=async()=>{if(!writable("edit"))return;closeSheet();
+      await run(async()=>{await S.db.doc("eats/"+spot.id).update({deleted:true,plan:null});toast("Spot deleted",()=>run(()=>S.db.doc("eats/"+spot.id).update({deleted:false})))})};
+  });
 }
 
 function viewStays(){
@@ -858,7 +978,7 @@ function viewBudget(){
 function render(){
   S.shown=ROLE_VIEWS[S.role].includes(S.view)?S.view:"now";
   nav();
-  const v={now:viewNow,plan:viewPlan,ideas:viewIdeas,stays:viewStays,budget:viewBudget}[S.shown];
+  const v={now:viewNow,plan:viewPlan,ideas:viewIdeas,eat:viewEat,stays:viewStays,budget:viewBudget}[S.shown];
   document.getElementById("main").innerHTML=v();
   const ss=document.getElementById("sortSel");if(ss)ss.onchange=e=>{S.ideaSort=e.target.value;render()};
   if(sheetRefresh)sheetRefresh();
@@ -877,6 +997,14 @@ document.getElementById("main").addEventListener("click",e=>{
   else if(ds.plan){planSheet(idea(ds.plan))}
   else if(ds.add){const[d,s]=ds.add.split("|");addSheet(d,s)}
   else if(ds.comments){commentSheet(ds.comments)}
+  else if(ds.eatcomments){commentSheet(ds.eatcomments,"eats")}
+  else if(ds.want){toggleWant(S.eats.find(e=>e.id===ds.want))}
+  else if(ds.editeat){eatSheet(S.eats.find(e=>e.id===ds.editeat))}
+  else if(ds.planeat){eatPlanSheet(S.eats.find(e=>e.id===ds.planeat))}
+  else if(ds.unplaneat){setEatPlan(S.eats.find(e=>e.id===ds.unplaneat),null)}
+  else if(ds.eatfilter){S.eatFilter=ds.eatfilter;render()}
+  else if(ds.eatarea!==undefined){S.eatArea=ds.eatarea;render()}
+  else if(ds.act==="neweat")eatSheet(null);
   else if(ds.editidea){ideaSheet(idea(ds.editidea))}
   else if(ds.editstay){staySheet(S.stays.find(x=>x.id===ds.editstay))}
   else if(ds.book){bookStay(ds.book)}
@@ -966,15 +1094,16 @@ function addSheet(d,s){
       if(b.dataset.pick){closeSheet();setPlan(S.ideas.find(i=>i.id===b.dataset.pick),{day:d,slot:s})}
       if(b.dataset.new){ideaSheet(null,{day:d,slot:s})}}));
 }
-function commentSheet(id){
-  const thread=()=>{const i=S.ideas.find(x=>x.id===id);if(!i)return"";const cs=Object.entries(i.comments||{}).map(([k,v])=>({k,...v})).sort((a,b)=>a.at-b.at);
+function commentSheet(id,coll="ideas"){
+  const find=()=>(coll==="eats"?S.eats:S.ideas).find(x=>x.id===id);
+  const thread=()=>{const i=find();if(!i)return"";const cs=Object.entries(i.comments||{}).map(([k,v])=>({k,...v})).sort((a,b)=>a.at-b.at);
     return cs.length?cs.map(c=>`<div class="cmt"><span class="who">${esc((c.by||"?").slice(0,2))}</span><div class="bubble"><small>${esc(c.by)} · ${ago(c.at)}</small>${esc(c.text)}</div></div>`).join(""):`<p class="muted">No comments yet. Start the conversation.</p>`};
-  const i=S.ideas.find(x=>x.id===id);
-  openSheet(i.title,`<div class="thread" id="thr">${thread()}</div>
+  const i=find();
+  openSheet(i.title||i.name,`<div class="thread" id="thr">${thread()}</div>
     <form id="cf"><div class="field"><label for="ctext">Your comment</label><textarea id="ctext" placeholder="Jump in, boet…" required></textarea></div><button class="btn primary" type="submit">Post</button></form>`,
     el=>{el.querySelector("#cf").addEventListener("submit",async e=>{e.preventDefault();if(!writable("comment"))return;const ta=el.querySelector("#ctext");const text=ta.value.trim();if(!text)return;
       const cid="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-      await run(()=>S.db.doc("ideas/"+id).update({comments:{[cid]:{by:S.me,text,at:Date.now()}}}));ta.value=""})},
+      await run(()=>S.db.doc(coll+"/"+id).update({comments:{[cid]:{by:S.me,text,at:Date.now()}}}));ta.value=""})},
     ()=>{const t=document.getElementById("thr");if(t)t.innerHTML=thread()});
 }
 function ideaSheet(idea,planAfter){
@@ -1077,7 +1206,7 @@ async function refresh(){
     S.ready=true; S.online=true;
     if(txt===lastJSON)return; lastJSON=txt;
     const d=JSON.parse(txt);
-    S.ideas=d.ideas||[]; S.stays=d.stays||[]; S.log=d.log||[]; S.config=d.config||{};
+    S.ideas=d.ideas||[]; S.eats=d.eats||[]; S.stays=d.stays||[]; S.log=d.log||[]; S.config=d.config||{};
     S.role=ROLE_VIEWS[d.role]?d.role:"public"; ls.set("lcds_role",S.role); fixMe();
   }catch(e){ if(S.online!==false){S.online=false;S.ready=true;render()} return }
   render();

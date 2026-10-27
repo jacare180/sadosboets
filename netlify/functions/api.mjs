@@ -20,8 +20,8 @@ function nameOk(role, n) {
   if (role === "locals") return n.trim() === n && n.length >= 1 && n.length <= 30 && !BOETS.includes(n) && n !== STEEN;
   return false;
 }
-const KEY_RE = /^(ideas|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
-const COLL_RE = /^(ideas|stays|log)$/;
+const KEY_RE = /^(ideas|eats|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
+const COLL_RE = /^(ideas|eats|stays|log)$/;
 const store = () => getStore({ name: "trip", consistency: "strong" });
 
 const json = (data, status = 200) =>
@@ -100,18 +100,33 @@ async function state(role) {
     }));
     await s.setJSON("meta/stays-oct27", { at: Date.now() });
   }
+  // one-time: restaurant ideas move to the Eat tab (same id, so their comments come along)
+  if (!keys.includes("meta/eats-move")) {
+    const ideaKeys = keys.filter((k) => k.startsWith("ideas/"));
+    const ideas = await Promise.all(ideaKeys.map((k) => s.get(k, { type: "json" }).catch(() => null)));
+    for (const [ix, k] of ideaKeys.entries()) {
+      const i = ideas[ix];
+      if (!i || i.deleted || i.type !== "Food") continue;
+      const id = k.split("/")[1];
+      await s.setJSON(`eats/${id}`, { name: i.title || "", area: i.area || "", cuisine: "", price: null, link: /^https?:/.test(i.source || "") ? i.source : "",
+        order: "", booking: false, note: i.note || "", by: i.by || "", createdAt: i.createdAt || Date.now(), plan: i.plan || null, deleted: false });
+      await s.setJSON(k, { ...i, deleted: true, movedTo: "eats" });
+      keys.push(`eats/${id}`);
+    }
+    await s.setJSON("meta/eats-move", { at: Date.now() });
+  }
   // keep the log short
   const logKeys = keys.filter((k) => k.startsWith("log/")).sort().reverse();
   const old = logKeys.slice(60);
   if (old.length) await Promise.all(old.map((k) => s.delete(k)));
   const wanted = keys.filter((k) => !k.startsWith("meta/") && !old.includes(k));
   const vals = await Promise.all(wanted.map((k) => s.get(k, { type: "json" }).catch(() => null)));
-  const out = { ideas: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {} };
+  const out = { ideas: {}, eats: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {}, want: {} };
   wanted.forEach((k, i) => {
     const v = vals[i];
     if (!v) return;
     const [c, a, b] = k.split("/");
-    if (c === "ideas" || c === "stays") out[c][a] = { id: a, ...v };
+    if (c === "ideas" || c === "stays" || c === "eats") out[c][a] = { id: a, ...v };
     else if (c === "log") out.log.push({ id: a, ...v });
     else if (c === "config" && a === "trip") out.config = v;
     else if (c === "votes") (out.votes[a] ||= {})[b] = v.v;
@@ -119,6 +134,7 @@ async function state(role) {
     else if (c === "steen") out.steen[a] = v.v;
     else if (c === "local") (out.local[a] ||= {})[decodeURIComponent(b)] = v.v;
     else if (c === "going") (out.going[a] ||= []).push(decodeURIComponent(b));
+    else if (c === "want") (out.want[a] ||= []).push(decodeURIComponent(b));
   });
   // Steen's verdict, the locals' verdicts and who else is coming are kept apart from the boets' votes
   const merge = (doc) => ({ ...doc, votes: out.votes[doc.id] || {}, comments: out.comments[doc.id] || {},
@@ -126,6 +142,7 @@ async function state(role) {
   const full = {
     ideas: Object.values(out.ideas).map(merge),
     stays: Object.values(out.stays).map(merge),
+    eats: Object.values(out.eats).map((e) => ({ ...e, comments: out.comments[e.id] || {}, want: (out.want[e.id] || []).sort() })),
     log: out.log.sort((x, y) => (y.at || 0) - (x.at || 0)).slice(0, 40),
     config: out.config,
   };
@@ -136,19 +153,30 @@ async function state(role) {
 function forRole(full, role) {
   if (role === "boets") return full;
   const live = full.ideas.filter((i) => !i.deleted);
+  const eats = full.eats.filter((e) => !e.deleted);
   const config = { halfDay: full.config.halfDay || null };
   if (role === "public") {
     const decided = live.filter((i) => i.plan && i.plan.day)
       .map(({ id, title, type, duration, area, note, priceZAR, plan }) => ({ id, title, type, duration, area, note, priceZAR, plan }));
-    return { ideas: decided, stays: [], log: [], config };
+    // the restaurant list is for invited people; the public only sees a meal once it is in the plan
+    const meals = eats.filter((e) => e.plan && e.plan.day).map(({ id, name, area, plan }) => ({ id, name, area, plan }));
+    return { ideas: decided, eats: meals, stays: [], log: [], config };
   }
   // Steen and locals: the booked stay shows only its name, area and photos (no address, link or price)
   const stays = full.stays.filter((s) => s.booked).map(({ id, name, area, photos }) => ({ id, name, area, photos, booked: true }));
-  return { ideas: live, stays, log: [], config };
+  return { ideas: live, eats, stays, log: [], config };
+}
+
+async function setWant(s, id, want, role) {
+  if (!want || !nameOk(role, want.by)) return false;
+  const k = `want/${id}/${encodeURIComponent(want.by)}`;
+  if (want.in) await s.setJSON(k, { at: Date.now() }); else await s.delete(k);
+  return true;
 }
 
 async function splitWrites(s, id, data, role) {
-  const { votes, comments, id: _ignore, ...rest } = data || {};
+  const { votes, comments, want, id: _ignore, ...rest } = data || {};
+  if (want !== undefined) await setWant(s, id, want, role);
   if (role === "boets" && votes && typeof votes === "object") {
     for (const [name, v] of Object.entries(votes)) {
       if (!BOETS.includes(name)) continue;
@@ -167,6 +195,7 @@ async function splitWrites(s, id, data, role) {
 }
 
 const IDEA_FIELDS = ["title", "type", "duration", "area", "source", "note", "priceZAR"];
+const EAT_FIELDS = ["name", "area", "cuisine", "link", "order", "note"];
 // which idea fields each guest role may change
 const GUEST_FIELDS = { comments: ["steen", "locals"], steen: ["steen"], plan: ["steen"], local: ["locals"], going: ["steen", "locals"] };
 const LOCAL_VERDICTS = ["must", "skip", "trap"];
@@ -207,6 +236,27 @@ async function write(req, role) {
 // Steen and locals: Juggest a new idea (signed with their own name) and comment; nothing else
 async function guestWrite(op, path, data, role) {
   const s = store();
+  // Eat: anyone invited adds a spot and says Want to go; comments too
+  if (op === "add" && path === "eats") {
+    if (!data || !nameOk(role, data.by) || typeof data.name !== "string" || !data.name.trim()) return json({ error: "bad spot" }, 400);
+    const eat = { by: data.by, createdAt: Date.now(), plan: null, deleted: false, booking: !!data.booking,
+      price: [1, 2, 3, 4].includes(data.price) ? data.price : null };
+    for (const f of EAT_FIELDS) eat[f] = String(data[f] ?? "").slice(0, 400);
+    const id = rid();
+    await s.setJSON(`eats/${id}`, eat);
+    if (data.want) await setWant(s, id, { by: data.by, in: true }, role);
+    return json({ id });
+  }
+  if (op === "update" && /^eats\/[A-Za-z0-9_\-.]{1,80}$/.test(path || "")) {
+    const fields = Object.keys(data || {});
+    if (!fields.length || fields.some((f) => f !== "comments" && f !== "want")) return json({ error: "not allowed" }, 403);
+    const cur = await s.get(path, { type: "json" });
+    if (!cur || cur.deleted) return json({ error: "not found" }, 404);
+    const id = path.split("/")[1];
+    if (data.want !== undefined && !(await setWant(s, id, data.want, role))) return json({ error: "bad name" }, 400);
+    if (data.comments) await splitWrites(s, id, { comments: data.comments }, role);
+    return json({ ok: true });
+  }
   if (op === "add" && path === "ideas") {
     if (!data || !nameOk(role, data.by) || typeof data.title !== "string" || !data.title.trim()) return json({ error: "bad idea" }, 400);
     const idea = { by: data.by, createdAt: Date.now(), plan: null, deleted: false };
