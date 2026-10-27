@@ -229,6 +229,15 @@ h3{font-size:16px;margin:0;font-weight:700;line-height:1.25}
 .planned svg{width:14px;height:14px}
 /* planned idea someone disliked: optional for them, does not lock their day */
 .opt{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:6px}
+.badges{display:flex;flex-wrap:wrap;gap:6px}
+.pi .badges{margin-top:6px}
+.tag.ok{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+.tag.no{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.gact{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%}
+.going{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px;border-top:1px solid var(--line)}
+.btn.on-ok{background:var(--good);border-color:var(--good);color:#fff}
+.btn.on-no{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.on-ink{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
 .pi.out-me{border-style:dashed;background:transparent}
 .planned button{margin-left:auto;border:0;background:none;color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:3px;font-size:13px}
 .empty{padding:28px 18px;text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:var(--r)}
@@ -355,7 +364,8 @@ table.matrix{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
 const BOETS=["Ben","Guigo","Tho","Beny"];
 const STEEN="Steen";
 /* roles come from the invite link; the API enforces the same rules, this only shapes the screens */
-const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment"],locals:["suggest","comment"],public:[]};
+const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment","approve","plan","going"],locals:["suggest","comment","verdict","going"],public:[]};
+const VERDICTS=[["must","Must do"],["skip","Skip it"],["trap","Tourist trap"]];
 const ROLE_VIEWS={boets:["now","plan","ideas","stays","budget"],steen:["now","plan","ideas","stays"],locals:["now","plan","ideas","stays"],public:["now","plan"]};
 const ZAR_PER_USD=16.6, BRL_PER_USD=5.2;
 const RATE_NOTE="1 USD = R16.60 (mid-market close, 26 Oct 2026, Trading Economics) · 1 USD = R$5.20 (rate fixed by the group)";
@@ -510,14 +520,52 @@ async function run(fn){
 async function addLog(entry){if(!isBoet())return;try{await S.db.collection("log").add({...entry,who:S.me,at:Date.now()})}catch(e){}}
 
 async function setPlan(idea,next,silent){
-  if(!writable())return;
+  if(!writable(isBoet()?"edit":"plan"))return;
+  if(!isBoet()&&!next&&idea.plannedBy!==STEEN){toast("Only the boets can take that off the plan.");return}
   const prev=idea.plan||null;
   await run(async()=>{
-    await S.db.doc("ideas/"+idea.id).update({plan:next});
+    await S.db.doc("ideas/"+idea.id).update(isBoet()?{plan:next,plannedBy:null}:{plan:next});
     await addLog({kind:"plan",ideaId:idea.id,title:idea.title,prev,next});
     if(!silent)toast(next?`Added to ${dW(next.day)} ${dNum(next.day)} · ${slotName(next.slot)}`:"Removed from the plan",()=>setPlan({...idea,plan:next},prev,true));
   });
 }
+const isLocalName=n=>!!n&&!BOETS.includes(n)&&n!==STEEN;
+const canUnplan=i=>can("edit")||(can("plan")&&i.plannedBy===STEEN);
+async function steenVote(i,v){
+  if(!writable("approve"))return;
+  await run(()=>S.db.doc("ideas/"+i.id).update({steen:(i.steen||0)===v?0:v}));
+}
+async function localVerdict(i,v){
+  if(!writable("verdict"))return;
+  await run(()=>S.db.doc("ideas/"+i.id).update({local:{by:S.me,v:(i.local||{})[S.me]===v?null:v}}));
+}
+async function toggleGoing(i){
+  if(!writable("going"))return;
+  const on=(i.going||[]).includes(S.me);
+  await run(async()=>{await S.db.doc("ideas/"+i.id).update({going:{by:S.me,in:!on}});toast(on?"Okay, you're out of this one":"You're in!")});
+}
+/* Steen's seal and the locals' verdicts, shown apart from the boets' votes */
+function badges(i){
+  if(S.role==="public")return "";
+  const out=[];
+  if(i.steen===1)out.push(`<span class="tag ok">${I.up}Steen approves</span>`);
+  if(i.steen===-1)out.push(`<span class="tag no">${I.down}Steen disapproves</span>`);
+  const lv=i.local||{};
+  for(const [k,l] of VERDICTS){const who=Object.keys(lv).filter(n=>lv[n]===k);if(who.length)out.push(`<span class="tag ${k==="must"?"ok":k==="trap"?"no":""}">${l} · ${who.map(esc).join(", ")}</span>`)}
+  if(isLocalName(i.by))out.push(`<span class="tag ink">Local pick</span>`);
+  return out.length?`<div class="badges">${out.join("")}</div>`:"";
+}
+function guestActions(i){
+  if(can("approve"))return `<div class="gact"><button type="button" class="btn sm ${i.steen===1?"on-ok":""}" data-steen="${i.id}|1" aria-pressed="${i.steen===1}">${I.up}Approve</button><button type="button" class="btn sm ${i.steen===-1?"on-no":""}" data-steen="${i.id}|-1" aria-pressed="${i.steen===-1}">${I.down}Disapprove</button></div>`;
+  if(can("verdict")){const mine=(i.local||{})[S.me];return `<div class="gact"><span class="small muted">Local verdict</span>${VERDICTS.map(([k,l])=>`<button type="button" class="btn sm ${mine===k?"on-ink":""}" data-local="${i.id}|${k}" aria-pressed="${mine===k}">${l}</button>`).join("")}</div>`}
+  return "";
+}
+function goingBtn(i){
+  if(!can("going")||!i.plan)return "";
+  const on=(i.going||[]).includes(S.me);
+  return `<button type="button" class="btn sm ${on?"on-ink":""}" data-going="${i.id}" aria-pressed="${on}">${on?I.check+"I'm in":"Count me in"}</button>`;
+}
+const goingLine=i=>{const o=(i.going||[]).filter(n=>n!==S.me);return o.length&&S.role!=="public"?`<span class="small muted">Also coming: ${o.map(esc).join(", ")}</span>`:""};
 async function vote(idea,v){
   if(!writable("vote"))return;
   const nv=myVote(idea)===v?0:v;
@@ -663,8 +711,8 @@ function dayCard(d){
     ${away?"":`<div class="slots">${SLOTS.map(([k,l])=>{
       const its=items.filter(i=>i.plan.slot===k); const bl=blocked.includes(k);
       return `<div class="slot ${bl?"blocked":""}"><div class="sl">${l}</div>
-        ${its.map(i=>`<div class="pi ${outMe(i)?"out-me":""}"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"}${isBoet()?` · ${score(i)>0?"+":""}${score(i)} votes`:""}</small>${outLine(i)}</div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}${can("edit")?`<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button>`:""}</div>`).join("")}
-        ${bl?"":can("edit")?`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`:its.length?"":`<div class="small muted">Open</div>`}
+        ${its.map(i=>`<div class="pi ${outMe(i)?"out-me":""}"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"}${isBoet()?` · ${score(i)>0?"+":""}${score(i)} votes`:""}</small>${outLine(i)}${badges(i)}${goingLine(i)||goingBtn(i)?`<div class="opt">${goingLine(i)}${goingBtn(i)}</div>`:""}</div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}${canUnplan(i)?`<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button>`:""}</div>`).join("")}
+        ${bl?"":can("edit")||can("plan")?`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`:its.length?"":`<div class="small muted">Open</div>`}
       </div>`}).join("")}</div>`}
   </section>`;
 }
@@ -675,11 +723,12 @@ function viewIdeas(){
   if(f==="liked")list=list.filter(i=>BOETS.every(b=>(i.votes||{})[b]===1));
   if(f==="open")list=list.filter(i=>!i.plan);
   if(f==="planned")list=list.filter(i=>i.plan);
+  if(f==="local")list=list.filter(i=>isLocalName(i.by)||Object.values(i.local||{}).includes("must"));
   if(f==="vote"&&S.me)list=list.filter(i=>!myVote(i));
   if(S.ideaType)list=list.filter(i=>i.type===S.ideaType);
   list.sort((a,b)=>S.ideaSort==="price"?((a.priceZAR??1e9)-(b.priceZAR??1e9)):S.ideaSort==="new"?(b.createdAt||0)-(a.createdAt||0):score(b)-score(a)||(b.createdAt||0)-(a.createdAt||0));
   const types=[...new Set(liveIdeas().map(i=>i.type).filter(Boolean))];
-  const F=[["all","All"],...(can("vote")?[["vote","Need my vote"]]:[]),["liked","Everyone likes"],["open","Not in plan"],["planned","In the plan"]];
+  const F=[["all","All"],...(can("vote")?[["vote","Need my vote"]]:[]),["liked","Everyone likes"],["open","Not in plan"],["planned","In the plan"],["local","Local picks"]];
   return `${banner()}
   <div class="page-head"><div class="grow"><div class="eyebrow">${liveIdeas().length} ideas · prices per person</div><h1>Ideas</h1>
     <p class="lead">${isBoet()?"Jote on everything, drop comments, and Jadd the winners to a day. Anyone can suggest.":"Juggest your favourite spots, restaurants included, and tell us what you think in the comments. The boets pick what goes in the plan."}</p></div>
@@ -703,17 +752,20 @@ function ideaCard(i){
       <div class="idea-top"><div class="t">${i.type?`<span class="tag">${esc(i.type)}</span>`:""}<h3>${esc(i.title)}</h3></div>${price(i.priceZAR==null?null:+i.priceZAR)}</div>
       <div class="meta">${i.duration?`<span>${I.clock}${esc(i.duration)}</span>`:""}${i.area?`<span>${I.pin}${esc(i.area)}</span>`:""}<span>by ${esc(i.by||"?")}</span></div>
       ${i.note?`<p>${esc(i.note)}</p>`:""}
+      ${badges(i)}
       ${i.source?`<div class="src">${I.link.replace("<svg",'<svg style="width:12px;height:12px;vertical-align:-1px"')} Price source: ${/^https?:/.test(i.source)?`<a href="${esc(i.source)}" target="_blank" rel="noopener">${esc(i.sourceLabel||new URL(i.source).hostname)}</a>`:esc(i.source)}</div>`:""}
     </div>
-    ${i.plan?`<div class="planned">${I.plan}<span>In the plan · ${dW(i.plan.day)} ${dNum(i.plan.day)} ${slotName(i.plan.slot).toLowerCase()}${outMe(i)?" · optional for you":""}</span>${can("edit")?`<button type="button" data-unplan="${i.id}">Jemove</button>`:""}</div>`:""}
+    ${i.plan?`<div class="planned">${I.plan}<span>In the plan · ${dW(i.plan.day)} ${dNum(i.plan.day)} ${slotName(i.plan.slot).toLowerCase()}${outMe(i)?" · optional for you":""}</span>${canUnplan(i)?`<button type="button" data-unplan="${i.id}">Jemove</button>`:""}</div>
+      ${goingLine(i)||goingBtn(i)?`<div class="going">${goingLine(i)}${goingBtn(i)}</div>`:""}`:""}
     <div class="idea-f">
       <div class="votes">${BOETS.map(b=>{const v=(i.votes||{})[b]||0;return `<span class="v ${v===1?"up":v===-1?"down":""}" title="${b}: ${v===1?"likes":v===-1?"doesn't like":"hasn't voted"}">${v===1?I.up:v===-1?I.down:""}${esc(b)}</span>`}).join("")}</div>
       <div class="row" style="width:100%">
         <button class="btn sm ghost" type="button" data-comments="${i.id}">${I.chat}${nc||""} ${nc===1?"comment":"comments"}</button>
-        ${i.plan||!can("edit")?"":`<button class="btn sm" type="button" data-plan="${i.id}">${I.plus}Jadd</button>`}
+        ${i.plan||!(can("edit")||can("plan"))?"":`<button class="btn sm" type="button" data-plan="${i.id}">${I.plus}Jadd</button>`}
         ${can("edit")?`<button class="btn sm ghost" type="button" data-editidea="${i.id}" aria-label="Edit">${I.edit}</button>`:""}
         ${can("vote")?`<div class="myvote">${voteBtns(i)}</div>`:""}
       </div>
+      ${guestActions(i)}
     </div>
   </article>`;
 }
@@ -817,6 +869,9 @@ document.getElementById("main").addEventListener("click",e=>{
   const t=e.target.closest("button,[data-act]");if(!t)return;
   const ds=t.dataset; const idea=id=>S.ideas.find(i=>i.id===id);
   if(ds.vote){vote(idea(ds.vote),+ds.v)}
+  else if(ds.steen){const[id,v]=ds.steen.split("|");steenVote(idea(id),+v)}
+  else if(ds.local){const[id,v]=ds.local.split("|");localVerdict(idea(id),v)}
+  else if(ds.going){toggleGoing(idea(ds.going))}
   else if(ds.svote){if(!writable())return;const s=S.stays.find(x=>x.id===ds.svote);const cur=(s.votes||{})[S.me]||0;const nv=cur===+ds.v?0:+ds.v;run(()=>S.db.doc("stays/"+s.id).update({votes:{[S.me]:nv}}))}
   else if(ds.unplan){setPlan(idea(ds.unplan),null)}
   else if(ds.plan){planSheet(idea(ds.plan))}
@@ -945,7 +1000,7 @@ function ideaSheet(idea,planAfter){
         else{const ref=await S.db.collection("ideas").add({...data,by:S.me,createdAt:Date.now(),votes:{[S.me]:1},comments:{},plan:planAfter||null,deleted:false});
           await addLog({kind:"idea",ideaId:ref.id,title:data.title});
           if(planAfter)await addLog({kind:"plan",ideaId:ref.id,title:data.title,prev:null,next:planAfter});
-          toast(planAfter?"Juggested and added to the plan":isBoet()?"Juggested. Your vote is in.":"Juggested. Thanks, the boets will see it!")}
+          toast(planAfter&&(isBoet()||S.role==="steen")?"Juggested and added to the plan":isBoet()?"Juggested. Your vote is in.":"Juggested. Thanks, the boets will see it!")}
       });
     });
     const del=el.querySelector("#del");if(del)del.onclick=async()=>{if(!writable())return;closeSheet();
@@ -1046,7 +1101,7 @@ async function shrink(file){
   }catch(e){return file}
 }
 S.assets={upload:async f=>{const b=await shrink(f);const r=await fetch("/api/photo",{method:"POST",headers:{"content-type":b.type||"image/jpeg","x-trip-key":S.key},body:b});if(!r.ok)throw 0;return r.json()}};
-function startPoll(){clearInterval(pollT);pollT=setInterval(()=>{if(document.visibilityState==="visible")refresh()},8000)}
+function startPoll(){clearInterval(pollT);pollT=setInterval(()=>{if(document.visibilityState==="visible")refresh()},30000)}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refresh()});
 
 /* ---------- boot ---------- */

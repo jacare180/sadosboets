@@ -9,11 +9,11 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 - `netlify/functions/api.mjs`: API com Netlify Blobs (store "trip", consistência strong)
   - `GET /api/state` | `POST /api/write {op: set|update|add, path, data}` | `POST /api/photo` | `GET /api/photo/:id`
   - Votos ficam em `votes/<id>/<nome>` e comentários em `comments/<id>/<cid>` (chaves separadas para evitar sobrescrita)
-- O front faz polling a cada 8s com a aba visível
+- O front faz polling a cada 30s com a aba visível (e atualiza na hora depois de cada gravação e ao voltar para o app)
 - Perfis por link de convite (`/?k=CODIGO`), sem login. O código fica no localStorage e sai da barra de endereço, então uma URL copiada é sempre a pública
   - `boets` (Ben, Guigo, Tho, Beny): tudo
-  - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest e comenta
-  - `locals` (amigos que moram lá): igual à Steen; digitam o nome uma vez, e num celular novo tocam no nome já usado
+  - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest, comenta, dá "Steen approves/disapproves" (chave `steen/<id>`, separada dos votos), coloca ideias em dias livres e tira só as que ela colocou (`plannedBy`), marca "I'm in"
+  - `locals` (amigos que moram lá): Now, Plan, Ideas, Our stay. Juggest, comenta, dá parecer local Must do / Skip it / Tourist trap (`local/<id>/<nome>`), marca "I'm in" (`going/<id>/<nome>`); digitam o nome uma vez, e num celular novo tocam no nome já usado
   - `public` (sem código): só Now e Plan com o que está decidido. Sem o local do Shabbat, da Welcome Party e do casamento, e sem o horário do casamento (campo `hidePublic` em `FIXED`)
 - Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo, mas só vale depois de um novo deploy
   - Gravar como variável comum, contexto "all": marcadas como secretas com contexto "all" elas não chegaram à função. A API registra no log, ao ligar, quais perfis têm código (`invite codes configured: ...`)
@@ -41,7 +41,9 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 ## Deploy
 
 - O repo é público: no plano grátis do Netlify, repo privado só aceita um contribuidor e o build falhava com "unrecognized Git contributor"
-- Cada push na `main` dispara o build
+- Cada push na `main` dispara o build. Deploy em produção custa 15 créditos (plano com 300 por ciclo): juntar mudanças e publicar uma vez por rodada
+- `netlify.toml` tem `ignore`: commit que só mexe fora de `public/`, `netlify/`, `netlify.toml` e `package.json` (ex.: só o CLAUDE.md) não gera build
+- Mudanças grandes vão primeiro para uma branch (deploy de branch é grátis, link `<branch-com-hifens>--sadosboets.netlify.app`); atenção: a branch usa os mesmos dados do Blobs que produção
 - Dados no Blobs que precisam mudar sem acesso ao site são feitos por passos únicos no `api.mjs` (chaves `meta/...`), que só preenchem campos vazios
 
 ## Feito
@@ -55,6 +57,4 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 - Stay 2: o link é uma wishlist, falta o link do anúncio
 - Melhorias de UX a partir dos prints do celular
 - Onde dormimos de 10 a 11/03: TBC
-- Etapa 2: "Steen approves / Steen disapproves" (selo separado dos votos), Steen coloca ideias no plano e tira só as dela
-- Etapa 3: locais com parecer local (Must do, Skip it, Tourist trap) e "I'm in" nos programas
 - Ideia registrada (lembrar o usuário): lugar para guardar as reservas, anexar documentos aos itens do plano e uma página com todos os documentos

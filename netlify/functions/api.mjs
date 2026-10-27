@@ -106,7 +106,7 @@ async function state(role) {
   if (old.length) await Promise.all(old.map((k) => s.delete(k)));
   const wanted = keys.filter((k) => !k.startsWith("meta/") && !old.includes(k));
   const vals = await Promise.all(wanted.map((k) => s.get(k, { type: "json" }).catch(() => null)));
-  const out = { ideas: {}, stays: {}, log: [], config: {}, votes: {}, comments: {} };
+  const out = { ideas: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {} };
   wanted.forEach((k, i) => {
     const v = vals[i];
     if (!v) return;
@@ -116,8 +116,13 @@ async function state(role) {
     else if (c === "config" && a === "trip") out.config = v;
     else if (c === "votes") (out.votes[a] ||= {})[b] = v.v;
     else if (c === "comments") (out.comments[a] ||= {})[b] = v;
+    else if (c === "steen") out.steen[a] = v.v;
+    else if (c === "local") (out.local[a] ||= {})[decodeURIComponent(b)] = v.v;
+    else if (c === "going") (out.going[a] ||= []).push(decodeURIComponent(b));
   });
-  const merge = (doc) => ({ ...doc, votes: out.votes[doc.id] || {}, comments: out.comments[doc.id] || {} });
+  // Steen's verdict, the locals' verdicts and who else is coming are kept apart from the boets' votes
+  const merge = (doc) => ({ ...doc, votes: out.votes[doc.id] || {}, comments: out.comments[doc.id] || {},
+    steen: out.steen[doc.id] || 0, local: out.local[doc.id] || {}, going: (out.going[doc.id] || []).sort() });
   const full = {
     ideas: Object.values(out.ideas).map(merge),
     stays: Object.values(out.stays).map(merge),
@@ -162,6 +167,11 @@ async function splitWrites(s, id, data, role) {
 }
 
 const IDEA_FIELDS = ["title", "type", "duration", "area", "source", "note", "priceZAR"];
+// which idea fields each guest role may change
+const GUEST_FIELDS = { comments: ["steen", "locals"], steen: ["steen"], plan: ["steen"], local: ["locals"], going: ["steen", "locals"] };
+const LOCAL_VERDICTS = ["must", "skip", "trap"];
+const PLAN_DAY = /^2027-03-(1[05-9]|2[0-4]|11)$/;
+const PLAN_SLOTS = ["morning", "afternoon", "evening"];
 
 async function write(req, role) {
   if (role === "public") return json({ error: "read only" }, 403);
@@ -201,16 +211,48 @@ async function guestWrite(op, path, data, role) {
     if (!data || !nameOk(role, data.by) || typeof data.title !== "string" || !data.title.trim()) return json({ error: "bad idea" }, 400);
     const idea = { by: data.by, createdAt: Date.now(), plan: null, deleted: false };
     for (const f of IDEA_FIELDS) if (data[f] !== undefined) idea[f] = f === "priceZAR" ? (data[f] == null ? null : +data[f]) : String(data[f]).slice(0, 400);
+    // Steen may Juggest straight into a free slot of the plan
+    const p = data.plan;
+    if (role === "steen" && p && PLAN_DAY.test(p.day) && PLAN_SLOTS.includes(p.slot)) { idea.plan = { day: p.day, slot: p.slot }; idea.plannedBy = STEEN; }
     const id = rid();
     await s.setJSON(`ideas/${id}`, idea);
+    if (idea.plan) await s.setJSON(`log/${rid()}`, { kind: "plan", ideaId: id, title: idea.title, prev: null, next: idea.plan, who: STEEN, at: Date.now() });
     return json({ id });
   }
   if (op === "update" && /^ideas\/[A-Za-z0-9_\-.]{1,80}$/.test(path || "")) {
-    const { comments, ...other } = data || {};
-    if (Object.keys(other).length || !comments) return json({ error: "not allowed" }, 403);
+    const fields = Object.keys(data || {});
+    if (!fields.length || fields.some((f) => !(GUEST_FIELDS[f] || []).includes(role))) return json({ error: "not allowed" }, 403);
     const id = path.split("/")[1];
-    if (!(await s.get(path, { type: "json" }))) return json({ error: "not found" }, 404);
-    await splitWrites(s, id, { comments }, role);
+    const cur = await s.get(path, { type: "json" });
+    if (!cur || cur.deleted) return json({ error: "not found" }, 404);
+    const { comments, steen, plan, local, going } = data;
+    if (comments) await splitWrites(s, id, { comments }, role);
+    if (steen !== undefined) {
+      if (![1, -1, 0].includes(steen)) return json({ error: "bad verdict" }, 400);
+      if (steen) await s.setJSON(`steen/${id}`, { v: steen }); else await s.delete(`steen/${id}`);
+    }
+    if (local !== undefined) {
+      if (!local || !nameOk(role, local.by) || !(local.v === null || LOCAL_VERDICTS.includes(local.v))) return json({ error: "bad verdict" }, 400);
+      const k = `local/${id}/${encodeURIComponent(local.by)}`;
+      if (local.v) await s.setJSON(k, { v: local.v }); else await s.delete(k);
+    }
+    if (going !== undefined) {
+      if (!going || !nameOk(role, going.by)) return json({ error: "bad name" }, 400);
+      const k = `going/${id}/${encodeURIComponent(going.by)}`;
+      if (going.in) await s.setJSON(k, { at: Date.now() }); else await s.delete(k);
+    }
+    if (plan !== undefined) {
+      // Steen can put an open idea on a free day and take off only what she put there
+      if (plan === null) {
+        if (cur.plannedBy !== STEEN || !cur.plan) return json({ error: "not yours" }, 403);
+      } else {
+        if (cur.plan && cur.plan.day) return json({ error: "already planned" }, 409);
+        if (!plan || !PLAN_DAY.test(plan.day) || !PLAN_SLOTS.includes(plan.slot)) return json({ error: "bad slot" }, 400);
+      }
+      const next = plan ? { day: plan.day, slot: plan.slot } : null;
+      await s.setJSON(path, { ...cur, plan: next, plannedBy: next ? STEEN : null });
+      await s.setJSON(`log/${rid()}`, { kind: "plan", ideaId: id, title: cur.title, prev: cur.plan || null, next, who: STEEN, at: Date.now() });
+    }
     return json({ ok: true });
   }
   return json({ error: "not allowed" }, 403);
