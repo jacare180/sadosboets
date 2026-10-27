@@ -180,6 +180,9 @@ h3{font-size:16px;margin:0;font-weight:700;line-height:1.25}
 .fixed .note{font-size:13px;border-top:1px solid rgba(127,127,127,.35);padding-top:8px;margin-top:2px}
 .fixed .note b{color:var(--accent)}
 .fixed.soft{background:var(--sunk);color:var(--fg)}
+.fixed .info svg{width:14px;height:14px;flex:none;opacity:.7}
+.fixed .btn.ghost{color:inherit;border-color:rgba(127,127,127,.5)}
+.fixed .btn.ghost:hover{border-color:currentColor}
 .slots{display:grid;border-top:1px solid var(--line)}
 @media (min-width:700px){.slots{grid-template-columns:repeat(3,1fr)}.slot+.slot{border-left:1px solid var(--line)}}
 @media (max-width:699px){.slot+.slot{border-top:1px solid var(--line)}}
@@ -353,15 +356,38 @@ const BLOCKED={"2027-03-19":["evening"],"2027-03-21":["evening"],"2027-03-23":["
 const maps=q=>"https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);
 const FIXED=[
   {day:"2027-03-10",title:"Trip starts",soft:true,info:[["Where we sleep Mar 10–11","TBC"]]},
-  {day:"2027-03-12",title:"Bachelors",away:true,info:[["Festival trip outside SA",""],["Mar 12–14",""]],note:"USD 200 per person. Details coming soon."},
+  {day:"2027-03-12",title:"Bachelors",away:true,info:[["Festival trip outside SA",""],["Mar 12–14",""]],note:"USD 200 per person. Details coming soon.",cal:{until:"2027-03-15"}},
   {day:"2027-03-13",title:"Bachelors",away:true,info:[["Festival day",""]]},
   {day:"2027-03-14",title:"Bachelors",away:true,info:[["Last festival day",""]]},
-  {day:"2027-03-15",title:"Back in Cape Town · Airbnb check-in",soft:true,info:[]},
-  {day:"2027-03-19",title:"Shabbat dinner",time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart"},
-  {day:"2027-03-21",title:"Welcome Party",time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic"},
-  {day:"2027-03-23",title:"The Wedding",time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah."},
-  {day:"2027-03-24",title:"Airbnb check-out · flights home",soft:true,info:[]},
+  {day:"2027-03-15",title:"Back in Cape Town · Airbnb check-in",soft:true,info:[],cal:{}},
+  {day:"2027-03-19",title:"Shabbat dinner",time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
+  {day:"2027-03-21",title:"Welcome Party",time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
+  {day:"2027-03-23",title:"The Wedding",time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
+  {day:"2027-03-24",title:"Airbnb check-out · flights home",soft:true,info:[],cal:{}},
 ];
+/* Google Calendar "add event" link. Timed events use Cape Town time; without start/end it is an all-day event (until = day after the last day). */
+const SLOT_TIME={morning:["09:00","12:00"],afternoon:["13:00","17:00"],evening:["18:00","22:00"]};
+function gcal({title,day,start,end,until,place,details}){
+  const d=x=>x.replace(/-/g,""), t=x=>x.replace(":","")+"00";
+  const next=x=>{const o=new Date(x+"T12:00:00Z");o.setUTCDate(o.getUTCDate()+1);return o.toISOString().slice(0,10)};
+  const q=new URLSearchParams({action:"TEMPLATE",text:title,dates:start?`${d(day)}T${t(start)}/${d(day)}T${t(end)}`:`${d(day)}/${d(until||next(day))}`});
+  if(start)q.set("ctz","Africa/Johannesburg");
+  if(place)q.set("location",place);
+  q.set("details",[details,`${location.origin}/#plan-${day}`].filter(Boolean).join("\n\n"));
+  return "https://calendar.google.com/calendar/render?"+q;
+}
+const strip=h=>{const e=document.createElement("div");e.innerHTML=h;return e.textContent};
+function calFixed(f){
+  const lines=[f.time,f.dress,f.note?strip(f.note):"",...(f.info||[]).map(([a,b])=>a+(b?": "+b:""))].filter(Boolean);
+  if(!f.cal.start&&f.time)lines.unshift("Exact time TBC");
+  return gcal({title:f.title,day:f.day,...f.cal,place:f.place,details:lines.join("\n")});
+}
+function calIdea(i){
+  const [a,b]=SLOT_TIME[i.plan.slot]||[];
+  const lines=[`${slotName(i.plan.slot)} slot (times are a guide)`,i.duration,i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,"ZAR")+" per person",i.note].filter(Boolean);
+  return gcal({title:i.title,day:i.plan.day,start:a,end:b,place:i.area,details:lines.join("\n")});
+}
+const calBtn=(href,label,text)=>`<a class="btn sm ghost${text?" right":""}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}">${I.plan}${text?"Jadd to calendar":""}</a>`;
 const MAJOR=["2027-03-12","2027-03-19","2027-03-21","2027-03-23"];
 
 /* ---------- icons ---------- */
@@ -570,16 +596,16 @@ function dayCard(d){
     <div class="day-h"><div class="n">${dNum(d)}</div><div><div class="w">${dObj(d).toLocaleDateString("en-US",{weekday:"long"})} · March</div><div class="lbl">${esc(label)}</div></div>
       <div class="sum">${dayCost?price(dayCost):""}</div></div>
     ${fx.map(f=>`<div class="fixed ${f.soft?"soft":""}">
-      <div class="row">${I.lock}<h3>${esc(f.title)}</h3></div>
+      <div class="row">${I.lock}<h3>${esc(f.title)}</h3>${f.cal?calBtn(calFixed(f),`Jadd ${f.title} to Google Calendar`,true):""}</div>
       ${(f.time||f.place||f.dress)?`<div class="info">${f.time?`<span>${I.clock}${esc(f.time)}</span>`:""}${f.place?`<span>${I.pin}<a href="${maps(f.place)}" target="_blank" rel="noopener">${esc(f.place)}</a></span>`:""}${f.dress?`<span>${I.shirt}${esc(f.dress)}</span>`:""}</div>`:""}
       ${(f.info||[]).length?`<div class="info">${f.info.map(([a,b])=>`<span>${esc(a)}${b?": "+esc(b):""}</span>`).join("")}</div>`:""}
       ${f.note?`<div class="note">${f.note}</div>`:""}
     </div>`).join("")}
-    ${hd?`<div class="fixed soft"><div class="row">${I.run}<h3>Beny's half marathon · 21.1 km</h3><button class="btn sm ghost right" type="button" data-act="half">Change day</button></div></div>`:""}
+    ${hd?`<div class="fixed soft"><div class="row">${I.run}<h3>Beny's half marathon · 21.1 km</h3><span class="right row" style="gap:6px">${calBtn(gcal({title:"Beny's half marathon · 21.1 km",day:d,details:"Start time TBC"}),"Jadd the half marathon to Google Calendar")}<button class="btn sm ghost" type="button" data-act="half">Change day</button></span></div></div>`:""}
     ${away?"":`<div class="slots">${SLOTS.map(([k,l])=>{
       const its=items.filter(i=>i.plan.slot===k); const bl=blocked.includes(k);
       return `<div class="slot ${bl?"blocked":""}"><div class="sl">${l}</div>
-        ${its.map(i=>`<div class="pi"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"} · ${score(i)>0?"+":""}${score(i)} votes</small></div><button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button></div>`).join("")}
+        ${its.map(i=>`<div class="pi"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"} · ${score(i)>0?"+":""}${score(i)} votes</small></div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button></div>`).join("")}
         ${bl?"":`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`}
       </div>`}).join("")}</div>`}
   </section>`;
