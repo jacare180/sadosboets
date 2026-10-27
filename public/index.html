@@ -374,9 +374,9 @@ const FIXED=[
   {day:"2027-03-13",title:"Bachelors",away:true,info:[["Festival day",""]]},
   {day:"2027-03-14",title:"Bachelors",away:true,info:[["Last festival day",""]]},
   {day:"2027-03-15",title:"Back in Cape Town · Airbnb check-in",soft:true,info:[],cal:{}},
-  {day:"2027-03-19",title:"Shabbat dinner",time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
-  {day:"2027-03-21",title:"Welcome Party",time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
-  {day:"2027-03-23",title:"The Wedding",private:true,time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
+  {day:"2027-03-19",title:"Shabbat dinner",hidePublic:["place"],time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
+  {day:"2027-03-21",title:"Welcome Party",hidePublic:["place"],time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
+  {day:"2027-03-23",title:"The Wedding",hidePublic:["place","time","note","cal"],time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
   {day:"2027-03-24",title:"Airbnb check-out · flights home",soft:true,info:[],cal:{}},
 ];
 /* Google Calendar "add event" link. Timed events use Cape Town time; without start/end it is an all-day event (until = day after the last day). */
@@ -466,7 +466,12 @@ function ago(t){const s=(Date.now()-t)/1000;if(s<60)return"just now";if(s<3600)r
 const liveIdeas=()=>S.ideas.filter(i=>!i.deleted);
 const score=i=>Object.values(i.votes||{}).reduce((a,b)=>a+(b||0),0);
 const myVote=i=>(i.votes||{})[S.me]||0;
-const fxv=f=>S.role==="public"&&f.private?{...f,time:"",place:"",dress:"",note:"",cal:{},info:[["Details shared with guests",""]]}:f;
+const fxv=f=>{
+  if(S.role!=="public"||!f.hidePublic)return f;
+  const g={...f,info:[...(f.info||[]),["Details shared with guests",""]]};
+  for(const k of f.hidePublic)g[k]=k==="cal"?{}:"";
+  return g;
+};
 const fixedAll=()=>FIXED.map(fxv);
 const fixedFor=day=>fixedAll().filter(f=>f.day===day);
 function halfDay(){return S.config.halfDay||null}

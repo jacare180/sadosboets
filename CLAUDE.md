@@ -14,7 +14,7 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
   - `boets` (Ben, Guigo, Tho, Beny): tudo
   - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest e comenta
   - `locals` (amigos que moram lá): igual à Steen; digitam o nome uma vez, e num celular novo tocam no nome já usado
-  - `public` (sem código): só Now e Plan com o que está decidido; casamento sem local e horário
+  - `public` (sem código): só Now e Plan com o que está decidido. Sem o local do Shabbat, da Welcome Party e do casamento, e sem o horário do casamento (campo `hidePublic` em `FIXED`)
 - Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo, mas só vale depois de um novo deploy
   - Gravar como variável comum, contexto "all": marcadas como secretas com contexto "all" elas não chegaram à função. A API registra no log, ao ligar, quais perfis têm código (`invite codes configured: ...`)
 - A API (`roleOf`, `forRole`, `guestWrite`) filtra o que cada perfil recebe e pode gravar; a tela só reflete isso
@@ -57,3 +57,4 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 - Onde dormimos de 10 a 11/03: TBC
 - Etapa 2: "Steen approves / Steen disapproves" (selo separado dos votos), Steen coloca ideias no plano e tira só as dela
 - Etapa 3: locais com parecer local (Must do, Skip it, Tourist trap) e "I'm in" nos programas
+- Ideia registrada (lembrar o usuário): lugar para guardar as reservas, anexar documentos aos itens do plano e uma página com todos os documentos
