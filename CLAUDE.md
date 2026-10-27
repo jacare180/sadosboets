@@ -15,7 +15,8 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
   - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest e comenta
   - `locals` (amigos que moram lá): igual à Steen; digitam o nome uma vez, e num celular novo tocam no nome já usado
   - `public` (sem código): só Now e Plan com o que está decidido; casamento sem local e horário
-- Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo na hora
+- Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo, mas só vale depois de um novo deploy
+  - Gravar como variável comum, contexto "all": marcadas como secretas com contexto "all" elas não chegaram à função. A API registra no log, ao ligar, quais perfis têm código (`invite codes configured: ...`)
 - A API (`roleOf`, `forRole`, `guestWrite`) filtra o que cada perfil recebe e pode gravar; a tela só reflete isso
 - Steen e locais veem do Airbnb só o escolhido, com nome, bairro e fotos (sem link, preço ou endereço)
 - O botão Share sempre compartilha o link público
