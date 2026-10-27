@@ -33,6 +33,15 @@ async function state() {
     await s.setJSON("meta/seeded", { at: Date.now() });
     keys = [...new Set([...keys, ...Object.keys(SEED)])];
   }
+  // one-time: Bachelors is USD 200 per person (USD 1 = R16.60), unless someone already set a cost
+  if (!keys.includes("meta/bach200")) {
+    const cfg = (await s.get("config/trip", { type: "json" }).catch(() => null)) || {};
+    if (cfg.bachelorsZAR == null) {
+      await s.setJSON("config/trip", { ...cfg, bachelorsZAR: 3320, bachelorsNote: cfg.bachelorsNote || "USD 200 per person" });
+      if (!keys.includes("config/trip")) keys.push("config/trip");
+    }
+    await s.setJSON("meta/bach200", { at: Date.now() });
+  }
   // keep the log short
   const logKeys = keys.filter((k) => k.startsWith("log/")).sort().reverse();
   const old = logKeys.slice(60);
