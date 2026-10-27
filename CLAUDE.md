@@ -29,9 +29,21 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 - Ter 23/03: Casamento, Plaisir Wine Estate, Franschhoek, chuppah 16h, chegar 14h30, van, formal
 - Meia maratona do Beny: dia a definir (o usuário escolhe pelo site)
 
+## Deploy
+
+- O repo é público: no plano grátis do Netlify, repo privado só aceita um contribuidor e o build falhava com "unrecognized Git contributor"
+- Cada push na `main` dispara o build
+- Dados no Blobs que precisam mudar sem acesso ao site são feitos por passos únicos no `api.mjs` (chaves `meta/...`), que só preenchem campos vazios
+
+## Feito
+
+- Ícone e modo app (manifest, apple-touch-icon, tags no `<head>`)
+- Bachelors: USD 200 por pessoa (R3.320)
+- Stays 1, 3 e 4 preenchidos a partir dos anúncios (27/10/2026), fotos em `public/stays/`. O Stay 4 não está disponível de 15 a 24/03
+
 ## Pendente
 
-- Ícone e modo app: pôr no repo os arquivos do sadosboets-public.zip (apple-touch-icon, manifest, ícones)
-- Preencher os 4 Airbnbs (preço, quartos, amenidades, fotos). O link 2 é uma wishlist, não um anúncio
+- Stay 2: o link é uma wishlist, falta o link do anúncio
+- Melhorias de UX a partir dos prints do celular
 - Onde dormimos de 10 a 11/03: TBC
 - Senha do grupo: não implementada (qualquer pessoa com o link edita)
