@@ -1,6 +1,25 @@
 import { getStore } from "@netlify/blobs";
 
 const BOETS = ["Ben", "Guigo", "Tho", "Beny"];
+const STEEN = "Steen";
+
+// Who is calling: the invite code (x-trip-key header) maps to a role. Codes live in Netlify env vars, never in the repo.
+const KEYS = [["boets", "KEY_BOETS"], ["steen", "KEY_STEEN"], ["locals", "KEY_LOCALS"]];
+console.log(`invite codes configured: ${KEYS.filter(([, env]) => process.env[env]).map(([role]) => role).join(", ") || "none"}`);
+function roleOf(req) {
+  const k = req.headers.get("x-trip-key") || "";
+  if (!k) return "public";
+  for (const [role, env] of KEYS) if (process.env[env] && k === process.env[env]) return role;
+  return "public";
+}
+// a name each role may sign with: boets their own four, Steen herself, locals any other short name
+function nameOk(role, n) {
+  if (typeof n !== "string") return false;
+  if (role === "boets") return BOETS.includes(n);
+  if (role === "steen") return n === STEEN;
+  if (role === "locals") return n.trim() === n && n.length >= 1 && n.length <= 30 && !BOETS.includes(n) && n !== STEEN;
+  return false;
+}
 const KEY_RE = /^(ideas|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
 const COLL_RE = /^(ideas|stays|log)$/;
 const store = () => getStore({ name: "trip", consistency: "strong" });
@@ -48,7 +67,7 @@ const STAY_FILL = {
   },
 };
 
-async function state() {
+async function state(role) {
   const s = store();
   let { blobs } = await s.list();
   let keys = blobs.map((b) => b.key).filter((k) => !k.startsWith("photos/"));
@@ -99,17 +118,33 @@ async function state() {
     else if (c === "comments") (out.comments[a] ||= {})[b] = v;
   });
   const merge = (doc) => ({ ...doc, votes: out.votes[doc.id] || {}, comments: out.comments[doc.id] || {} });
-  return json({
+  const full = {
     ideas: Object.values(out.ideas).map(merge),
     stays: Object.values(out.stays).map(merge),
     log: out.log.sort((x, y) => (y.at || 0) - (x.at || 0)).slice(0, 40),
     config: out.config,
-  });
+  };
+  return json({ role, ...forRole(full, role) });
 }
 
-async function splitWrites(s, id, data) {
+// what each role gets to see; anything not listed here never leaves the server
+function forRole(full, role) {
+  if (role === "boets") return full;
+  const live = full.ideas.filter((i) => !i.deleted);
+  const config = { halfDay: full.config.halfDay || null };
+  if (role === "public") {
+    const decided = live.filter((i) => i.plan && i.plan.day)
+      .map(({ id, title, type, duration, area, note, priceZAR, plan }) => ({ id, title, type, duration, area, note, priceZAR, plan }));
+    return { ideas: decided, stays: [], log: [], config };
+  }
+  // Steen and locals: the booked stay shows only its name, area and photos (no address, link or price)
+  const stays = full.stays.filter((s) => s.booked).map(({ id, name, area, photos }) => ({ id, name, area, photos, booked: true }));
+  return { ideas: live, stays, log: [], config };
+}
+
+async function splitWrites(s, id, data, role) {
   const { votes, comments, id: _ignore, ...rest } = data || {};
-  if (votes && typeof votes === "object") {
+  if (role === "boets" && votes && typeof votes === "object") {
     for (const [name, v] of Object.entries(votes)) {
       if (!BOETS.includes(name)) continue;
       const k = `votes/${id}/${name}`;
@@ -119,28 +154,32 @@ async function splitWrites(s, id, data) {
   }
   if (comments && typeof comments === "object") {
     for (const [cid, c] of Object.entries(comments)) {
-      if (!/^[A-Za-z0-9]{1,40}$/.test(cid) || !c || !BOETS.includes(c.by)) continue;
+      if (!/^[A-Za-z0-9]{1,40}$/.test(cid) || !c || !nameOk(role, c.by)) continue;
       await s.setJSON(`comments/${id}/${cid}`, { by: c.by, text: String(c.text || "").slice(0, 2000), at: Date.now() });
     }
   }
   return rest;
 }
 
-async function write(req) {
+const IDEA_FIELDS = ["title", "type", "duration", "area", "source", "note", "priceZAR"];
+
+async function write(req, role) {
+  if (role === "public") return json({ error: "read only" }, 403);
   const body = await req.json().catch(() => null);
   if (!body || JSON.stringify(body).length > 200000) return json({ error: "bad request" }, 400);
   const { op, path, data } = body;
+  if (role !== "boets") return guestWrite(op, path, data, role);
   const s = store();
   if (op === "add") {
     if (!COLL_RE.test(path)) return json({ error: "bad path" }, 400);
     const id = rid();
-    const rest = await splitWrites(s, id, data);
+    const rest = await splitWrites(s, id, data, role);
     await s.setJSON(`${path}/${id}`, rest);
     return json({ id });
   }
   if (!KEY_RE.test(path || "")) return json({ error: "bad path" }, 400);
   const id = path.split("/")[1];
-  const rest = await splitWrites(s, id, data);
+  const rest = await splitWrites(s, id, data, role);
   if (op === "set") {
     await s.setJSON(path, rest);
     return json({ ok: true });
@@ -153,6 +192,28 @@ async function write(req) {
     return json({ ok: true });
   }
   return json({ error: "bad op" }, 400);
+}
+
+// Steen and locals: Juggest a new idea (signed with their own name) and comment; nothing else
+async function guestWrite(op, path, data, role) {
+  const s = store();
+  if (op === "add" && path === "ideas") {
+    if (!data || !nameOk(role, data.by) || typeof data.title !== "string" || !data.title.trim()) return json({ error: "bad idea" }, 400);
+    const idea = { by: data.by, createdAt: Date.now(), plan: null, deleted: false };
+    for (const f of IDEA_FIELDS) if (data[f] !== undefined) idea[f] = f === "priceZAR" ? (data[f] == null ? null : +data[f]) : String(data[f]).slice(0, 400);
+    const id = rid();
+    await s.setJSON(`ideas/${id}`, idea);
+    return json({ id });
+  }
+  if (op === "update" && /^ideas\/[A-Za-z0-9_\-.]{1,80}$/.test(path || "")) {
+    const { comments, ...other } = data || {};
+    if (Object.keys(other).length || !comments) return json({ error: "not allowed" }, 403);
+    const id = path.split("/")[1];
+    if (!(await s.get(path, { type: "json" }))) return json({ error: "not found" }, 404);
+    await splitWrites(s, id, { comments }, role);
+    return json({ ok: true });
+  }
+  return json({ error: "not allowed" }, 403);
 }
 
 async function uploadPhoto(req) {
@@ -176,10 +237,11 @@ async function getPhoto(id) {
 
 export default async (req) => {
   const path = new URL(req.url).pathname.replace(/^\/api\/?/, "");
+  const role = roleOf(req);
   try {
-    if (req.method === "GET" && path === "state") return await state();
-    if (req.method === "POST" && path === "write") return await write(req);
-    if (req.method === "POST" && path === "photo") return await uploadPhoto(req);
+    if (req.method === "GET" && path === "state") return await state(role);
+    if (req.method === "POST" && path === "write") return await write(req, role);
+    if (req.method === "POST" && path === "photo") return role === "boets" ? await uploadPhoto(req) : json({ error: "not allowed" }, 403);
     if (req.method === "GET" && path.startsWith("photo/")) return await getPhoto(path.slice(6));
     return json({ error: "not found" }, 404);
   } catch (e) {

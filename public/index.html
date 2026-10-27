@@ -90,6 +90,8 @@ h3{font-size:16px;margin:0;font-weight:700;line-height:1.25}
 .section{margin-top:32px}
 .section-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
 .section-head .more{margin-left:auto;font-size:13px;color:var(--mute)}
+.linkbtn{border:0;background:none;padding:0;display:inline-flex;align-items:center;gap:4px;font-weight:600}
+.linkbtn svg{width:14px;height:14px}
 /* buttons */
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;font-weight:600;font-size:14px;white-space:nowrap;text-decoration:none}
 .btn svg{width:16px;height:16px}
@@ -351,6 +353,10 @@ table.matrix{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
 <script>
 /* ---------- constants ---------- */
 const BOETS=["Ben","Guigo","Tho","Beny"];
+const STEEN="Steen";
+/* roles come from the invite link; the API enforces the same rules, this only shapes the screens */
+const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment"],locals:["suggest","comment"],public:[]};
+const ROLE_VIEWS={boets:["now","plan","ideas","stays","budget"],steen:["now","plan","ideas","stays"],locals:["now","plan","ideas","stays"],public:["now","plan"]};
 const ZAR_PER_USD=16.6, BRL_PER_USD=5.2;
 const RATE_NOTE="1 USD = R16.60 (mid-market close, 26 Oct 2026, Trading Economics) · 1 USD = R$5.20 (rate fixed by the group)";
 const NIGHTS=9; // Airbnb 15 → 24 Mar
@@ -370,7 +376,7 @@ const FIXED=[
   {day:"2027-03-15",title:"Back in Cape Town · Airbnb check-in",soft:true,info:[],cal:{}},
   {day:"2027-03-19",title:"Shabbat dinner",time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
   {day:"2027-03-21",title:"Welcome Party",time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
-  {day:"2027-03-23",title:"The Wedding",time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
+  {day:"2027-03-23",title:"The Wedding",private:true,time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
   {day:"2027-03-24",title:"Airbnb check-out · flights home",soft:true,info:[],cal:{}},
 ];
 /* Google Calendar "add event" link. Timed events use Cape Town time; without start/end it is an all-day event (until = day after the last day). */
@@ -419,13 +425,24 @@ const I={
  star:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
  info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+ share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
  run:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="4" r="2"/><path d="M6 21l3-6 3 2v4M8 11l3-3 4 2 3 3M5 13l3-2"/></svg>',
 };
 
 /* ---------- state ---------- */
 const S={ideas:[],stays:[],log:[],config:{},view:"now",me:null,cur:"ZAR",db:null,assets:null,online:null,ready:false,ideaFilter:"all",ideaType:"",ideaSort:"score"};
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
-S.me=ls.get("lcds_me"); if(!BOETS.includes(S.me))S.me=null;
+/* invite link: keep the code on this device, then drop it from the address bar so a copied URL is always the public one */
+(()=>{try{const u=new URL(location.href);const k=u.searchParams.get("k");if(k){ls.set("lcds_k",k);u.searchParams.delete("k");history.replaceState(null,"",u.pathname+u.search+u.hash)}}catch(e){}})();
+S.key=ls.get("lcds_k")||"";
+S.role=S.key?(ls.get("lcds_role")||"public"):"public";
+function fixMe(){
+  const n=ls.get("lcds_me");
+  S.me=S.role==="steen"?STEEN:S.role==="boets"?(BOETS.includes(n)?n:null):S.role==="locals"?(n&&!BOETS.includes(n)&&n!==STEEN?n:null):null;
+}
+fixMe();
+const can=a=>(ROLE_CAN[S.role]||[]).includes(a);
+const isBoet=()=>S.role==="boets";
 S.cur=ls.get("lcds_cur")||"ZAR";
 
 /* ---------- helpers ---------- */
@@ -449,7 +466,9 @@ function ago(t){const s=(Date.now()-t)/1000;if(s<60)return"just now";if(s<3600)r
 const liveIdeas=()=>S.ideas.filter(i=>!i.deleted);
 const score=i=>Object.values(i.votes||{}).reduce((a,b)=>a+(b||0),0);
 const myVote=i=>(i.votes||{})[S.me]||0;
-const fixedFor=day=>FIXED.filter(f=>f.day===day);
+const fxv=f=>S.role==="public"&&f.private?{...f,time:"",place:"",dress:"",note:"",cal:{},info:[["Details shared with guests",""]]}:f;
+const fixedAll=()=>FIXED.map(fxv);
+const fixedFor=day=>fixedAll().filter(f=>f.day===day);
 function halfDay(){return S.config.halfDay||null}
 function bookedStay(){return S.stays.find(s=>s.booked)}
 function stayZAR(s){return s&&s.priceTotal!=null&&s.priceTotal!==""?toZAR(+s.priceTotal,s.currency||"ZAR"):null}
@@ -473,16 +492,17 @@ function toast(msg,undo){
 }
 
 /* ---------- writes ---------- */
-function writable(){
-  if(!S.me){whoSheet();return false}
-    return true;
+function writable(action="edit"){
+  if(!can(action)){toast(S.role==="public"?"This is the read-only itinerary.":"Only the boets can change that.");return false}
+  if(!S.me){nameSheet();return false}
+  return true;
 }
 async function run(fn){
   try{await fn()}catch(e){
     toast("That didn't save. Check your connection and try again.");
   }
 }
-async function addLog(entry){try{await S.db.collection("log").add({...entry,who:S.me,at:Date.now()})}catch(e){}}
+async function addLog(entry){if(!isBoet())return;try{await S.db.collection("log").add({...entry,who:S.me,at:Date.now()})}catch(e){}}
 
 async function setPlan(idea,next,silent){
   if(!writable())return;
@@ -494,7 +514,7 @@ async function setPlan(idea,next,silent){
   });
 }
 async function vote(idea,v){
-  if(!writable())return;
+  if(!writable("vote"))return;
   const nv=myVote(idea)===v?0:v;
   await run(()=>S.db.doc("ideas/"+idea.id).update({votes:{[S.me]:nv}}));
 }
@@ -513,15 +533,15 @@ async function undoLog(l){
 /* ---------- nav ---------- */
 const VIEWS=[["now","Now"],["plan","Plan"],["ideas","Ideas"],["stays","Stays"],["budget","Budget"]];
 function nav(){
-  const pend=S.me?liveIdeas().filter(i=>!myVote(i)).length:0;
-  const html=VIEWS.map(([k,l])=>`<a href="#${k}" ${S.view===k?'aria-current="page"':""}>${I[k]}<span>${l}</span>${k==="ideas"&&pend?`<em class="badge" aria-label="${pend} to vote">${pend}</em>`:""}</a>`).join("");
-  document.getElementById("tabs").innerHTML=html;
+  const pend=S.me&&can("vote")?liveIdeas().filter(i=>!myVote(i)).length:0;
+  const html=VIEWS.filter(([k])=>ROLE_VIEWS[S.role].includes(k)).map(([k,l])=>[k,k==="stays"&&!isBoet()?"Our stay":l]).map(([k,l])=>`<a href="#${k}" ${S.shown===k?'aria-current="page"':""}>${I[k]}<span>${l}</span>${k==="ideas"&&pend?`<em class="badge" aria-label="${pend} to vote">${pend}</em>`:""}</a>`).join("");
+  const tabs=document.getElementById("tabs");tabs.innerHTML=html;tabs.style.gridTemplateColumns=`repeat(${ROLE_VIEWS[S.role].length},1fr)`;
   document.getElementById("rail").innerHTML=html+`<div class="rate">${esc(RATE_NOTE)}</div>`;
   document.getElementById("cur").innerHTML=["ZAR","USD","BRL"].map(c=>`<button type="button" aria-pressed="${S.cur===c}" data-cur="${c}">${c==="ZAR"?"R":c==="USD"?"$":"R$"}</button>`).join("");
-  document.getElementById("meBtn").innerHTML=S.me?`${esc(S.me)}`:"Who are you?";
+  document.getElementById("meBtn").innerHTML=S.role==="public"?"Got a link?":S.me?`${esc(S.me)}`:S.role==="boets"?"Who are you?":"Your name?";
 }
 document.getElementById("cur").addEventListener("click",e=>{const b=e.target.closest("[data-cur]");if(!b)return;S.cur=b.dataset.cur;ls.set("lcds_cur",S.cur);render()});
-document.getElementById("meBtn").onclick=()=>whoSheet();
+document.getElementById("meBtn").onclick=()=>S.role==="public"?inviteSheet():nameSheet();
 function route(){const h=location.hash.slice(1);const ok=VIEWS.map(v=>v[0]);const base=h.split("-")[0];S.view=ok.includes(base)?base:"now";render();
   if(h.startsWith("plan-")){const el=document.getElementById(h);if(el)el.scrollIntoView({behavior:"smooth",block:"start"})}else window.scrollTo(0,0)}
 window.addEventListener("hashchange",route);
@@ -529,6 +549,7 @@ window.addEventListener("hashchange",route);
 /* ---------- views ---------- */
 function banner(){
   if(S.online===false)return `<div class="banner">${I.info}<span>Can't reach the shared list right now. Check your connection; the page retries on its own.</span></div>`;
+  if(S.key&&S.role==="public"&&S.ready)return `<div class="banner">${I.info}<span>This invite link doesn't work anymore, so you're seeing the public itinerary. Ask the boets for the new link.</span><button class="btn sm" type="button" data-act="invite">Paste link</button></div>`;
   return "";
 }
 function viewNow(){
@@ -536,7 +557,7 @@ function viewNow(){
   const days=Math.ceil((start-now)/864e5); const during=now>=start&&now<end;
   const t=totals();
   const todayIso=new Date(now.getTime()+2*3600e3).toISOString().slice(0,10);
-  const upcoming=FIXED.filter(f=>!f.soft&&!(f.away&&f.day!=="2027-03-12")&&(during?f.day>=todayIso:true));
+  const upcoming=fixedAll().filter(f=>!f.soft&&!(f.away&&f.day!=="2027-03-12")&&(during?f.day>=todayIso:true));
   const pend=S.me?liveIdeas().filter(i=>!myVote(i)):[];
   const log=S.log.slice(0,6);
   return `${banner()}
@@ -546,23 +567,25 @@ function viewNow(){
       ${during?`<div class="count">Day ${Math.floor((now-start)/864e5)+1}<small>of 15</small></div>`:`<div class="count num">${Math.max(days,0)}<small>days to go</small></div>`}
       <div class="sub">10 → 24 Mar 2027 · 4 boets · 1 wedding</div>
     </div>
-    <div class="hero-row">
+    <div class="hero-row">${isBoet()?`
       <div class="hero-stat"><div class="k">Cost per boet so far</div><div class="v">${money(t.known,S.cur)} <small>+ TBC items</small></div></div>
       <div class="hero-stat"><div class="k">Ideas in the plan</div><div class="v">${planned().length} <small>of ${liveIdeas().length}</small></div></div>
-      <div class="hero-stat"><div class="k">Stay</div><div class="v">${t.bs?esc(t.bs.name||"Booked"):"Not booked"}</div></div>
+      <div class="hero-stat"><div class="k">Stay</div><div class="v">${t.bs?esc(t.bs.name||"Booked"):"Not booked"}</div></div>`:`
+      <div class="hero-stat"><div class="k">In the plan</div><div class="v">${planned().length} <small>${planned().length===1?"thing":"things"}</small></div></div>
+      ${S.role!=="public"?`<div class="hero-stat"><div class="k">We're staying in</div><div class="v">${t.bs?esc(t.bs.area||t.bs.name||"Booked"):"TBC"}</div></div>`:""}`}
     </div>
   </section>
   <div class="grid two-wide section">
     <section>
-      <div class="section-head"><h2>Locked dates</h2><a class="more" href="#plan">Full plan →</a></div>
+      <div class="section-head"><h2>Locked dates</h2><button class="more linkbtn" type="button" data-act="share">${I.share}Share</button><a class="more" style="margin-left:0" href="#plan">Full plan →</a></div>
       <div class="card">${upcoming.map((f,i)=>`<a href="#plan-${f.day}" class="ev ${i===0?"next":""}" style="text-decoration:none">
         <div class="d"><span>${dW(f.day)}</span><b class="${f.away?"range":""}">${dNum(f.day)}${f.away?"–14":""}</b><span>Mar</span></div>
         <div><h3>${esc(f.title)} ${i===0?'<span class="tag hot">Next</span>':""}</h3>
         <div class="meta" style="margin-top:4px">${f.time?`<span>${I.clock}${esc(f.time)}</span>`:""}${f.place?`<span>${I.pin}${esc(f.place)}</span>`:""}${f.dress?`<span>${I.shirt}${esc(f.dress)}</span>`:""}${f.away?`<span>Festival outside SA</span>`:""}</div>
-        ${f.day==="2027-03-23"?`<div class="small" style="margin-top:6px;color:var(--accent-ink);font-weight:600">Van · be there by 2:30 PM</div>`:""}</div></a>`).join("")}
+        ${f.day==="2027-03-23"&&f.place?`<div class="small" style="margin-top:6px;color:var(--accent-ink);font-weight:600">Van · be there by 2:30 PM</div>`:""}</div></a>`).join("")}
       </div>
     </section>
-    <section>
+    ${isBoet()?`<section>
       <div class="section-head"><h2>Your votes</h2><a class="more" href="#ideas">All ideas →</a></div>
       <div class="card">${!S.me?`<div class="pending"><div class="t">Pick your name to start voting.</div><button class="btn sm primary" type="button" data-act="who">I'm…</button></div>`
         :pend.length?pend.slice(0,4).map(i=>`<div class="pending"><div class="t"><b>${esc(i.title)}</b><span class="small muted">${esc(i.type||"")} · suggested by ${esc(i.by||"?")}</span></div>
@@ -571,8 +594,20 @@ function viewNow(){
       </div>
       <div class="section-head" style="margin-top:22px"><h2>Latest changes</h2></div>
       <div class="card">${log.length?log.map(logRow).join(""):`<div class="logrow muted">Every change to the plan shows up here, with who made it and an undo.</div>`}</div>
-    </section>
+    </section>`:nextInPlan()}
   </div>`;
+}
+/* Now, for everyone who isn't a boet: what's coming up in the plan */
+function nextInPlan(){
+  const order=["morning","afternoon","evening"];
+  const list=planned().sort((a,b)=>a.plan.day.localeCompare(b.plan.day)||order.indexOf(a.plan.slot)-order.indexOf(b.plan.slot)).slice(0,6);
+  return `<section>
+      <div class="section-head"><h2>In the plan</h2>${can("suggest")?`<a class="more" href="#ideas">Juggest a spot →</a>`:""}</div>
+      <div class="card">${list.length?list.map(i=>`<a href="#plan-${i.plan.day}" class="ev" style="text-decoration:none">
+        <div class="d"><span>${dW(i.plan.day)}</span><b>${dNum(i.plan.day)}</b><span>Mar</span></div>
+        <div><h3>${esc(i.title)}</h3><div class="meta" style="margin-top:4px"><span>${I.clock}${esc(slotName(i.plan.slot))}</span>${i.area?`<span>${I.pin}${esc(i.area)}</span>`:""}</div></div></a>`).join("")
+        :`<div class="logrow muted">Nothing planned yet besides the locked dates. Check back soon.</div>`}</div>
+    </section>`;
 }
 function logRow(l){
   // built per kind only: "next" is a {day,slot} for plan entries but a date string for half entries
@@ -598,10 +633,10 @@ function viewPlan(){
   const todayIso=new Date(Date.now()+2*3600e3).toISOString().slice(0,10);
   return `${banner()}
   <div class="page-head"><div class="grow"><div class="eyebrow">15 days · 4 locked dates</div><h1>The plan</h1>
-    <p class="lead">Locked dates are fixed. Fill the open slots with ideas from the list. Anyone can add or remove, and every change can be undone from Now.</p></div>
-    <div>${price(t.actPP)}<div class="small muted" style="text-align:right">activities per boet</div></div></div>
+    <p class="lead">${isBoet()?"Locked dates are fixed. Fill the open slots with ideas from the list. Anyone can add or remove, and every change can be undone from Now.":"Locked dates are fixed. The boets fill the open slots as the plan comes together, so check back. Tap the calendar icon to save anything to your Google Calendar."}</p></div>
+    ${isBoet()?`<div>${price(t.actPP)}<div class="small muted" style="text-align:right">activities per boet</div></div>`:`<button class="btn" type="button" data-act="share">${I.share}Share itinerary</button>`}</div>
   <div class="daystrip" role="navigation" aria-label="Jump to day">${DAYS.map(d=>`<a class="dchip ${AWAY.includes(d)?"away":""} ${MAJOR.includes(d)?"major":""} ${d===todayIso?"today":""}" href="#plan-${d}"><span>${dW(d)}</span><b>${dNum(d)}</b></a>`).join("")}</div>
-  ${!hd?`<div class="card unsched">${I.run.replace("<svg",'<svg style="width:22px;height:22px"')}<div style="flex:1;min-width:180px"><b>Beny's half marathon</b><div class="small muted">21.1 km · day still to be decided</div></div><button class="btn sm" type="button" data-act="half">Pick a day</button></div>`:""}
+  ${!hd&&can("edit")?`<div class="card unsched">${I.run.replace("<svg",'<svg style="width:22px;height:22px"')}<div style="flex:1;min-width:180px"><b>Beny's half marathon</b><div class="small muted">21.1 km · day still to be decided</div></div><button class="btn sm" type="button" data-act="half">Pick a day</button></div>`:""}
   ${DAYS.map(dayCard).join("")}`;
 }
 function dayCard(d){
@@ -619,12 +654,12 @@ function dayCard(d){
       ${(f.info||[]).length?`<div class="info">${f.info.map(([a,b])=>`<span>${esc(a)}${b?": "+esc(b):""}</span>`).join("")}</div>`:""}
       ${f.note?`<div class="note">${f.note}</div>`:""}
     </div>`).join("")}
-    ${hd?`<div class="fixed soft"><div class="row">${I.run}<h3>Beny's half marathon · 21.1 km</h3><span class="right row" style="gap:6px">${calBtn(gcal({title:"Beny's half marathon · 21.1 km",day:d,details:"Start time TBC"}),"Jadd the half marathon to Google Calendar")}<button class="btn sm ghost" type="button" data-act="half">Change day</button></span></div></div>`:""}
+    ${hd?`<div class="fixed soft"><div class="row">${I.run}<h3>Beny's half marathon · 21.1 km</h3><span class="right row" style="gap:6px">${calBtn(gcal({title:"Beny's half marathon · 21.1 km",day:d,details:"Start time TBC"}),"Jadd the half marathon to Google Calendar")}${can("edit")?`<button class="btn sm ghost" type="button" data-act="half">Change day</button>`:""}</span></div></div>`:""}
     ${away?"":`<div class="slots">${SLOTS.map(([k,l])=>{
       const its=items.filter(i=>i.plan.slot===k); const bl=blocked.includes(k);
       return `<div class="slot ${bl?"blocked":""}"><div class="sl">${l}</div>
-        ${its.map(i=>`<div class="pi ${outMe(i)?"out-me":""}"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"} · ${score(i)>0?"+":""}${score(i)} votes</small>${outLine(i)}</div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button></div>`).join("")}
-        ${bl?"":`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`}
+        ${its.map(i=>`<div class="pi ${outMe(i)?"out-me":""}"><div class="t"><b>${esc(i.title)}</b><small>${i.priceZAR==null?"Price TBC":i.priceZAR==0?"Free":money(+i.priceZAR,S.cur)+" pp"}${isBoet()?` · ${score(i)>0?"+":""}${score(i)} votes`:""}</small>${outLine(i)}</div>${calBtn(calIdea(i),`Jadd ${i.title} to Google Calendar`)}${can("edit")?`<button class="btn sm ghost" type="button" data-unplan="${i.id}" aria-label="Remove ${esc(i.title)} from the plan">Jemove</button>`:""}</div>`).join("")}
+        ${bl?"":can("edit")?`<button class="add" type="button" data-add="${d}|${k}">${I.plus} Jadd idea</button>`:its.length?"":`<div class="small muted">Open</div>`}
       </div>`}).join("")}</div>`}
   </section>`;
 }
@@ -639,11 +674,11 @@ function viewIdeas(){
   if(S.ideaType)list=list.filter(i=>i.type===S.ideaType);
   list.sort((a,b)=>S.ideaSort==="price"?((a.priceZAR??1e9)-(b.priceZAR??1e9)):S.ideaSort==="new"?(b.createdAt||0)-(a.createdAt||0):score(b)-score(a)||(b.createdAt||0)-(a.createdAt||0));
   const types=[...new Set(liveIdeas().map(i=>i.type).filter(Boolean))];
-  const F=[["all","All"],["vote","Need my vote"],["liked","Everyone likes"],["open","Not in plan"],["planned","In the plan"]];
+  const F=[["all","All"],...(can("vote")?[["vote","Need my vote"]]:[]),["liked","Everyone likes"],["open","Not in plan"],["planned","In the plan"]];
   return `${banner()}
   <div class="page-head"><div class="grow"><div class="eyebrow">${liveIdeas().length} ideas · prices per person</div><h1>Ideas</h1>
-    <p class="lead">Jote on everything, drop comments, and Jadd the winners to a day. Anyone can suggest.</p></div>
-    <button class="btn hot" type="button" data-act="newidea">${I.plus} Juggest an idea</button></div>
+    <p class="lead">${isBoet()?"Jote on everything, drop comments, and Jadd the winners to a day. Anyone can suggest.":"Juggest your favourite spots, restaurants included, and tell us what you think in the comments. The boets pick what goes in the plan."}</p></div>
+    ${can("suggest")?`<button class="btn hot" type="button" data-act="newidea">${I.plus} Juggest an idea</button>`:""}</div>
   <div class="toolbar">
     <div class="chips" role="group" aria-label="Filter">${F.map(([k,l])=>`<button type="button" class="chip" aria-pressed="${f===k}" data-filter="${k}">${l}</button>`).join("")}</div>
     <div class="row">
@@ -665,20 +700,21 @@ function ideaCard(i){
       ${i.note?`<p>${esc(i.note)}</p>`:""}
       ${i.source?`<div class="src">${I.link.replace("<svg",'<svg style="width:12px;height:12px;vertical-align:-1px"')} Price source: ${/^https?:/.test(i.source)?`<a href="${esc(i.source)}" target="_blank" rel="noopener">${esc(i.sourceLabel||new URL(i.source).hostname)}</a>`:esc(i.source)}</div>`:""}
     </div>
-    ${i.plan?`<div class="planned">${I.plan}<span>In the plan · ${dW(i.plan.day)} ${dNum(i.plan.day)} ${slotName(i.plan.slot).toLowerCase()}${outMe(i)?" · optional for you":""}</span><button type="button" data-unplan="${i.id}">Jemove</button></div>`:""}
+    ${i.plan?`<div class="planned">${I.plan}<span>In the plan · ${dW(i.plan.day)} ${dNum(i.plan.day)} ${slotName(i.plan.slot).toLowerCase()}${outMe(i)?" · optional for you":""}</span>${can("edit")?`<button type="button" data-unplan="${i.id}">Jemove</button>`:""}</div>`:""}
     <div class="idea-f">
       <div class="votes">${BOETS.map(b=>{const v=(i.votes||{})[b]||0;return `<span class="v ${v===1?"up":v===-1?"down":""}" title="${b}: ${v===1?"likes":v===-1?"doesn't like":"hasn't voted"}">${v===1?I.up:v===-1?I.down:""}${esc(b)}</span>`}).join("")}</div>
       <div class="row" style="width:100%">
         <button class="btn sm ghost" type="button" data-comments="${i.id}">${I.chat}${nc||""} ${nc===1?"comment":"comments"}</button>
-        ${i.plan?"":`<button class="btn sm" type="button" data-plan="${i.id}">${I.plus}Jadd</button>`}
-        <button class="btn sm ghost" type="button" data-editidea="${i.id}" aria-label="Edit">${I.edit}</button>
-        <div class="myvote">${voteBtns(i)}</div>
+        ${i.plan||!can("edit")?"":`<button class="btn sm" type="button" data-plan="${i.id}">${I.plus}Jadd</button>`}
+        ${can("edit")?`<button class="btn sm ghost" type="button" data-editidea="${i.id}" aria-label="Edit">${I.edit}</button>`:""}
+        ${can("vote")?`<div class="myvote">${voteBtns(i)}</div>`:""}
       </div>
     </div>
   </article>`;
 }
 
 function viewStays(){
+  if(!isBoet())return guestStay();
   const st=[...S.stays].sort((a,b)=>(a.order||0)-(b.order||0));
   const prices=st.map(stayZAR).filter(v=>v!=null); const min=prices.length?Math.min(...prices):null;
   return `${banner()}
@@ -697,6 +733,16 @@ function viewStays(){
     </tbody></table></div>
     <p class="small muted">✓ has it · ✗ doesn't · · not filled in yet. Orange marks the cheapest.</p>
   </section>`}`;
+}
+function guestStay(){
+  const s=bookedStay(); const ph=s?(s.photos||[]).slice(0,3):[];
+  return `${banner()}
+  <div class="page-head"><div class="grow"><div class="eyebrow">15 → 24 Mar · ${NIGHTS} nights</div><h1>Our stay</h1></div></div>
+  ${!S.ready?`<div class="empty"><b>Loading…</b></div>`:!s?`<div class="empty"><b>Not picked yet</b>The boets are still choosing. It shows up here once it's booked.</div>`:`
+  <article class="card stay" style="max-width:640px">
+    ${ph.length?`<div class="photos ${ph.length===1?"one":""}">${ph.map(p=>`<img src="${esc(p.url)}" alt="Photo of ${esc(s.name||"our stay")}" loading="lazy">`).join("")}</div>`:""}
+    <div class="stay-b"><h3>${esc(s.name||"Our stay")}</h3>${s.area?`<div class="meta"><span>${I.pin}${esc(s.area)}</span></div>`:""}</div>
+  </article>`}`;
 }
 function stayCard(s,min){
   const z=stayZAR(s); const ph=(s.photos||[]).slice(0,3); const am=s.amenities||{};
@@ -753,8 +799,9 @@ function viewBudget(){
 
 /* ---------- render ---------- */
 function render(){
+  S.shown=ROLE_VIEWS[S.role].includes(S.view)?S.view:"now";
   nav();
-  const v={now:viewNow,plan:viewPlan,ideas:viewIdeas,stays:viewStays,budget:viewBudget}[S.view];
+  const v={now:viewNow,plan:viewPlan,ideas:viewIdeas,stays:viewStays,budget:viewBudget}[S.shown];
   document.getElementById("main").innerHTML=v();
   const ss=document.getElementById("sortSel");if(ss)ss.onchange=e=>{S.ideaSort=e.target.value;render()};
   if(sheetRefresh)sheetRefresh();
@@ -777,7 +824,9 @@ document.getElementById("main").addEventListener("click",e=>{
   else if(ds.filter){S.ideaFilter=ds.filter;render()}
   else if(ds.type!==undefined){S.ideaType=ds.type;render()}
   else if(ds.act==="newidea")ideaSheet(null);
-  else if(ds.act==="who")whoSheet();
+  else if(ds.act==="who")nameSheet();
+  else if(ds.act==="share")shareItinerary();
+  else if(ds.act==="invite")inviteSheet();
   else if(ds.act==="half")halfSheet();
   else if(ds.act==="bach")bachSheet();
 });
@@ -798,6 +847,37 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 function whoSheet(){
   openSheet("Who are you, boet?",`<p class="muted" style="margin-top:0">Pick your name so your votes and changes count as yours. You can switch any time.</p><div class="who-pick">${BOETS.map(b=>`<button type="button" data-me="${b}">${b}</button>`).join("")}</div>`,
   el=>el.addEventListener("click",e=>{const b=e.target.closest("[data-me]");if(!b)return;S.me=b.dataset.me;ls.set("lcds_me",S.me);closeSheet();render();toast("Welcome, "+S.me)}));
+}
+
+function nameSheet(){
+  if(S.role==="boets")return whoSheet();
+  if(S.role==="steen")return toast("You're Steen here. Welcome!");
+  if(S.role!=="locals")return inviteSheet();
+  // names already used by locals, so on a new phone they tap theirs instead of typing it again
+  const known=[...new Set(liveIdeas().flatMap(i=>[i.by,...Object.values(i.comments||{}).map(c=>c.by)]).filter(n=>n&&!BOETS.includes(n)&&n!==STEEN))].sort();
+  openSheet("What's your name?",`<p class="muted" style="margin-top:0">So the boets know who Juggested what. You only do this once on this phone.</p>
+    ${known.length?`<div class="field"><label>Been here before? Tap your name</label><div class="row">${known.map(n=>`<button class="btn" type="button" data-known="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>`:""}
+    <form id="nf"><div class="field"><label for="n-name">${known.length?"Or type it":"Your name"}</label><input id="n-name" maxlength="30" autocomplete="given-name" required value="${esc(S.me||"")}"></div><button class="btn primary" type="submit">Save</button></form>`,
+  el=>{
+    const pick=n=>{n=n.trim().slice(0,30);if(!n)return;if(BOETS.includes(n)||n===STEEN){toast("That name is taken. Try adding your surname.");return}ls.set("lcds_me",n);fixMe();closeSheet();render();toast("Welcome, "+n)};
+    el.addEventListener("click",e=>{const b=e.target.closest("[data-known]");if(b)pick(b.dataset.known)});
+    el.querySelector("#nf").addEventListener("submit",e=>{e.preventDefault();pick(el.querySelector("#n-name").value)});
+  });
+}
+function inviteSheet(){
+  openSheet("Got an invite link?",`<p class="muted" style="margin-top:0">Paste the link the boets sent you. If you added the app to your home screen, you need to do this once inside the app too.</p>
+    <form id="kf"><div class="field"><label for="k-in">Invite link</label><input id="k-in" required placeholder="https://sadosboets.netlify.app/?k=…" autocomplete="off"></div><button class="btn primary" type="submit">Open</button></form>`,
+  el=>el.querySelector("#kf").addEventListener("submit",async e=>{e.preventDefault();const v=el.querySelector("#k-in").value.trim();
+    let k=v;try{k=new URL(v).searchParams.get("k")||""}catch(x){}
+    if(!/^[A-Za-z0-9_-]{6,80}$/.test(k)){toast("That doesn't look like an invite link.");return}
+    ls.set("lcds_k",k);S.key=k;lastJSON="";closeSheet();await refresh();
+    toast(S.role==="public"?"That link didn't work. Ask the boets for the latest one.":"You're in!")}));
+}
+/* always shares the public itinerary, never the invite link of whoever is sharing */
+async function shareItinerary(){
+  const url=location.origin+"/#plan";
+  try{if(navigator.share){await navigator.share({title:"La Casa De Seda in Cape Town",text:"Our Cape Town itinerary, 10 to 24 March 2027",url});return}}catch(e){if(e&&e.name==="AbortError")return}
+  try{await navigator.clipboard.writeText(url);toast("Itinerary link copied")}catch(e){toast(url)}
 }
 
 function slotFree(d,s){return !(BLOCKED[d]||[]).includes(s)&&!AWAY.includes(d)}
@@ -832,7 +912,7 @@ function commentSheet(id){
   const i=S.ideas.find(x=>x.id===id);
   openSheet(i.title,`<div class="thread" id="thr">${thread()}</div>
     <form id="cf"><div class="field"><label for="ctext">Your comment</label><textarea id="ctext" placeholder="Jump in, boet…" required></textarea></div><button class="btn primary" type="submit">Post</button></form>`,
-    el=>{el.querySelector("#cf").addEventListener("submit",async e=>{e.preventDefault();if(!writable())return;const ta=el.querySelector("#ctext");const text=ta.value.trim();if(!text)return;
+    el=>{el.querySelector("#cf").addEventListener("submit",async e=>{e.preventDefault();if(!writable("comment"))return;const ta=el.querySelector("#ctext");const text=ta.value.trim();if(!text)return;
       const cid="c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
       await run(()=>S.db.doc("ideas/"+id).update({comments:{[cid]:{by:S.me,text,at:Date.now()}}}));ta.value=""})},
     ()=>{const t=document.getElementById("thr");if(t)t.innerHTML=thread()});
@@ -850,7 +930,7 @@ function ideaSheet(idea,planAfter){
     <div class="field"><label for="f-note">Why it's good</label><textarea id="f-note" maxlength="400">${esc(i.note||"")}</textarea></div>
     <div class="row"><button class="btn primary" type="submit">${idea?"Save":"Juggest it"}</button>${idea?`<button class="btn ghost right" type="button" id="del" style="color:var(--bad)">Delete idea</button>`:""}</div>
   </form>`,el=>{
-    el.querySelector("#if").addEventListener("submit",async e=>{e.preventDefault();if(!writable())return;
+    el.querySelector("#if").addEventListener("submit",async e=>{e.preventDefault();if(!writable(idea?"edit":"suggest"))return;
       const g=id=>el.querySelector(id).value.trim(); const pv=g("#f-price");
       const data={title:g("#f-title"),type:g("#f-type"),duration:g("#f-dur"),area:g("#f-area"),source:g("#f-src"),note:g("#f-note"),priceZAR:pv===""?null:Math.round(toZAR(+pv,g("#f-cur"))*100)/100};
       if(!data.title)return;
@@ -860,7 +940,7 @@ function ideaSheet(idea,planAfter){
         else{const ref=await S.db.collection("ideas").add({...data,by:S.me,createdAt:Date.now(),votes:{[S.me]:1},comments:{},plan:planAfter||null,deleted:false});
           await addLog({kind:"idea",ideaId:ref.id,title:data.title});
           if(planAfter)await addLog({kind:"plan",ideaId:ref.id,title:data.title,prev:null,next:planAfter});
-          toast(planAfter?"Juggested and added to the plan":"Juggested. Your vote is in.")}
+          toast(planAfter?"Juggested and added to the plan":isBoet()?"Juggested. Your vote is in.":"Juggested. Thanks, the boets will see it!")}
       });
     });
     const del=el.querySelector("#del");if(del)del.onclick=async()=>{if(!writable())return;closeSheet();
@@ -931,18 +1011,20 @@ function bachSheet(){
 let lastJSON="", pollT=null;
 async function refresh(){
   try{
-    const r=await fetch("/api/state",{cache:"no-store"});
+    const r=await fetch("/api/state",{cache:"no-store",headers:{"x-trip-key":S.key}});
     if(!r.ok)throw 0;
     const txt=await r.text();
     S.ready=true; S.online=true;
     if(txt===lastJSON)return; lastJSON=txt;
     const d=JSON.parse(txt);
     S.ideas=d.ideas||[]; S.stays=d.stays||[]; S.log=d.log||[]; S.config=d.config||{};
+    S.role=ROLE_VIEWS[d.role]?d.role:"public"; ls.set("lcds_role",S.role); fixMe();
   }catch(e){ if(S.online!==false){S.online=false;S.ready=true;render()} return }
   render();
+  if(!S.asked&&!S.me&&(S.role==="boets"||S.role==="locals")){S.asked=true;nameSheet()}
 }
 async function apiWrite(body){
-  const r=await fetch("/api/write",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const r=await fetch("/api/write",{method:"POST",headers:{"content-type":"application/json","x-trip-key":S.key},body:JSON.stringify(body)});
   if(!r.ok)throw {code:r.status===404?"not_found":"unavailable"};
   const j=await r.json(); setTimeout(refresh,150); return j;
 }
@@ -958,13 +1040,12 @@ async function shrink(file){
     return await new Promise(res=>c.toBlob(b=>res(b||file),"image/jpeg",0.82));
   }catch(e){return file}
 }
-S.assets={upload:async f=>{const b=await shrink(f);const r=await fetch("/api/photo",{method:"POST",headers:{"content-type":b.type||"image/jpeg"},body:b});if(!r.ok)throw 0;return r.json()}};
+S.assets={upload:async f=>{const b=await shrink(f);const r=await fetch("/api/photo",{method:"POST",headers:{"content-type":b.type||"image/jpeg","x-trip-key":S.key},body:b});if(!r.ok)throw 0;return r.json()}};
 function startPoll(){clearInterval(pollT);pollT=setInterval(()=>{if(document.visibilityState==="visible")refresh()},8000)}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refresh()});
 
 /* ---------- boot ---------- */
 route();
-if(!S.me)setTimeout(whoSheet,400);
 refresh(); startPoll();
 </script>
 

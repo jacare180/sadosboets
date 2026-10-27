@@ -10,7 +10,15 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
   - `GET /api/state` | `POST /api/write {op: set|update|add, path, data}` | `POST /api/photo` | `GET /api/photo/:id`
   - Votos ficam em `votes/<id>/<nome>` e comentários em `comments/<id>/<cid>` (chaves separadas para evitar sobrescrita)
 - O front faz polling a cada 8s com a aba visível
-- Sem login: cada pessoa escolhe o nome (Ben, Guigo, Tho, Beny), salvo em localStorage
+- Perfis por link de convite (`/?k=CODIGO`), sem login. O código fica no localStorage e sai da barra de endereço, então uma URL copiada é sempre a pública
+  - `boets` (Ben, Guigo, Tho, Beny): tudo
+  - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest e comenta
+  - `locals` (amigos que moram lá): igual à Steen; digitam o nome uma vez, e num celular novo tocam no nome já usado
+  - `public` (sem código): só Now e Plan com o que está decidido; casamento sem local e horário
+- Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo na hora
+- A API (`roleOf`, `forRole`, `guestWrite`) filtra o que cada perfil recebe e pode gravar; a tela só reflete isso
+- Steen e locais veem do Airbnb só o escolhido, com nome, bairro e fotos (sem link, preço ou endereço)
+- O botão Share sempre compartilha o link público
 
 ## Regras de conteúdo
 
@@ -46,4 +54,5 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
 - Stay 2: o link é uma wishlist, falta o link do anúncio
 - Melhorias de UX a partir dos prints do celular
 - Onde dormimos de 10 a 11/03: TBC
-- Senha do grupo: não implementada (qualquer pessoa com o link edita)
+- Etapa 2: "Steen approves / Steen disapproves" (selo separado dos votos), Steen coloca ideias no plano e tira só as dela
+- Etapa 3: locais com parecer local (Must do, Skip it, Tourist trap) e "I'm in" nos programas
