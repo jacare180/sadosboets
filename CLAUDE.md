@@ -15,12 +15,14 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
   - `boets` (Ben, Guigo, Tho, Beny): tudo
   - `steen` (Raya, aparece como "Steen"): Now, Plan, Ideas, Our stay. Juggest, comenta, dá "Steen approves/disapproves" (chave `steen/<id>`, separada dos votos), coloca ideias em dias livres e tira só as que ela colocou (`plannedBy`), marca "I'm in"
   - `locals` (amigos que moram lá): Now, Plan, Ideas, Our stay. Juggest, comenta, dá parecer local Must do / Skip it / Tourist trap (`local/<id>/<nome>`), marca "I'm in" (`going/<id>/<nome>`); digitam o nome uma vez, e num celular novo tocam no nome já usado
-  - `public` (sem código): só Now e Plan com o que está decidido. Sem o local do Shabbat, da Welcome Party e do casamento, e sem o horário do casamento (campo `hidePublic` em `FIXED`)
-- Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS` (nunca no repo, que é público). Trocar um código derruba o link antigo, mas só vale depois de um novo deploy
+  - `sidekicks` ("Side Kicks": amigos próximos que vão na viagem): Now, Plan, Ideas, Eat, Our stay, com os eventos do casamento completos. Juggest ideia e restaurante (entram direto, com `byRole: "sidekicks"` e etiqueta "Side Kick"), comenta, "I'm in", "Want to go". Não vota, não planeja, não dá selo nem parecer local. Digitam o nome uma vez (a lista de nomes é separada da dos locais)
+  - `public` (sem código): só Now e Plan com o que está decidido. Shabbat, Welcome Party e casamento aparecem só como "Busy", sem título, horário, local ou link de calendário (`hidePublic: "all"` em `FIXED`); os horários continuam bloqueados
+- Códigos nas variáveis do Netlify `KEY_BOETS`, `KEY_STEEN`, `KEY_LOCALS`, `KEY_SIDEKICKS` (nunca no repo, que é público). Trocar um código derruba o link antigo, mas só vale depois de um novo deploy
   - Gravar como variável comum, contexto "all": marcadas como secretas com contexto "all" elas não chegaram à função. A API registra no log, ao ligar, quais perfis têm código (`invite codes configured: ...`)
 - A API (`roleOf`, `forRole`, `guestWrite`) filtra o que cada perfil recebe e pode gravar; a tela só reflete isso
 - Steen e locais veem do Airbnb só o escolhido, com nome, bairro e fotos (sem link, preço ou endereço)
 - O botão Share sempre compartilha o link público
+- Os boets têm na Now o card "Invite links", com um botão Send para o link de cada grupo. Os links vêm de `GET /api/links` (só boets), montados a partir das variáveis do Netlify
 
 ## Regras de conteúdo
 

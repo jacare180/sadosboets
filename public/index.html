@@ -365,9 +365,9 @@ table.matrix{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
 const BOETS=["Ben","Guigo","Tho","Beny"];
 const STEEN="Steen";
 /* roles come from the invite link; the API enforces the same rules, this only shapes the screens */
-const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment","approve","plan","going"],locals:["suggest","comment","verdict","going"],public:[]};
+const ROLE_CAN={boets:["edit","vote","suggest","comment"],steen:["suggest","comment","approve","plan","going"],locals:["suggest","comment","verdict","going"],sidekicks:["suggest","comment","going"],public:[]};
 const VERDICTS=[["must","Must do"],["skip","Skip it"],["trap","Tourist trap"]];
-const ROLE_VIEWS={boets:["now","plan","ideas","eat","stays","budget"],steen:["now","plan","ideas","eat","stays"],locals:["now","plan","ideas","eat","stays"],public:["now","plan"]};
+const ROLE_VIEWS={boets:["now","plan","ideas","eat","stays","budget"],steen:["now","plan","ideas","eat","stays"],locals:["now","plan","ideas","eat","stays"],sidekicks:["now","plan","ideas","eat","stays"],public:["now","plan"]};
 const ZAR_PER_USD=16.6, BRL_PER_USD=5.2;
 const RATE_NOTE="1 USD = R16.60 (mid-market close, 26 Oct 2026, Trading Economics) · 1 USD = R$5.20 (rate fixed by the group)";
 const NIGHTS=9; // Airbnb 15 → 24 Mar
@@ -386,9 +386,9 @@ const FIXED=[
   {day:"2027-03-13",title:"Bachelors",away:true,info:[["Festival day",""]]},
   {day:"2027-03-14",title:"Bachelors",away:true,info:[["Last festival day",""]]},
   {day:"2027-03-15",title:"Back in Cape Town · Airbnb check-in",soft:true,info:[],cal:{}},
-  {day:"2027-03-19",title:"Shabbat dinner",hidePublic:["place"],time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
-  {day:"2027-03-21",title:"Welcome Party",hidePublic:["place"],time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
-  {day:"2027-03-23",title:"The Wedding",hidePublic:["place","time","note","cal"],time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
+  {day:"2027-03-19",title:"Shabbat dinner",hidePublic:"all",time:"Evening",place:"Luuma, Cape Town",dress:"Dress smart",cal:{}},
+  {day:"2027-03-21",title:"Welcome Party",hidePublic:"all",time:"5:00 PM onwards",place:"Norval Foundation, Cape Town",dress:"Cocktail chic",cal:{start:"17:00",end:"21:00"}},
+  {day:"2027-03-23",title:"The Wedding",hidePublic:"all",time:"Chuppah 4:00 PM",place:"Plaisir Wine Estate, Franschhoek",dress:"Formal",note:"<b>Van to the venue.</b> Be there by 2:30 PM, 90 minutes before the chuppah.",cal:{start:"14:30",end:"23:00"}},
   {day:"2027-03-24",title:"Airbnb check-out · flights home",soft:true,info:[],cal:{}},
 ];
 /* Google Calendar "add event" link. Timed events use Cape Town time; without start/end it is an all-day event (until = day after the last day). */
@@ -451,7 +451,7 @@ S.key=ls.get("lcds_k")||"";
 S.role=S.key?(ls.get("lcds_role")||"public"):"public";
 function fixMe(){
   const n=ls.get("lcds_me");
-  S.me=S.role==="steen"?STEEN:S.role==="boets"?(BOETS.includes(n)?n:null):S.role==="locals"?(n&&!BOETS.includes(n)&&n!==STEEN?n:null):null;
+  S.me=S.role==="steen"?STEEN:S.role==="boets"?(BOETS.includes(n)?n:null):S.role==="locals"||S.role==="sidekicks"?(n&&!BOETS.includes(n)&&n!==STEEN?n:null):null;
 }
 fixMe();
 const can=a=>(ROLE_CAN[S.role]||[]).includes(a);
@@ -481,6 +481,7 @@ const score=i=>Object.values(i.votes||{}).reduce((a,b)=>a+(b||0),0);
 const myVote=i=>(i.votes||{})[S.me]||0;
 const fxv=f=>{
   if(S.role!=="public"||!f.hidePublic)return f;
+  if(f.hidePublic==="all")return {day:f.day,title:"Busy",busy:true,info:[],cal:null};
   const g={...f,info:[...(f.info||[]),["Details shared with guests",""]]};
   for(const k of f.hidePublic)g[k]=k==="cal"?{}:"";
   return g;
@@ -536,6 +537,8 @@ async function setPlan(idea,next,silent){
   });
 }
 const isLocalName=n=>!!n&&!BOETS.includes(n)&&n!==STEEN;
+const isLocalBy=x=>isLocalName(x.by)&&x.byRole!=="sidekicks";
+const kickTag=x=>x.byRole==="sidekicks"?`<span class="tag">Side Kick</span>`:"";
 const canUnplan=i=>can("edit")||(can("plan")&&i.plannedBy===STEEN);
 async function steenVote(i,v){
   if(!writable("approve"))return;
@@ -558,7 +561,8 @@ function badges(i){
   if(i.steen===-1)out.push(`<span class="tag no">${I.down}Steen disapproves</span>`);
   const lv=i.local||{};
   for(const [k,l] of VERDICTS){const who=Object.keys(lv).filter(n=>lv[n]===k);if(who.length)out.push(`<span class="tag ${k==="must"?"ok":k==="trap"?"no":""}">${l} · ${who.map(esc).join(", ")}</span>`)}
-  if(isLocalName(i.by))out.push(`<span class="tag ink">Local pick</span>`);
+  if(isLocalBy(i))out.push(`<span class="tag ink">Local pick</span>`);
+  if(i.byRole==="sidekicks")out.push(kickTag(i));
   return out.length?`<div class="badges">${out.join("")}</div>`:"";
 }
 function guestActions(i){
@@ -617,7 +621,7 @@ function viewNow(){
   const days=Math.ceil((start-now)/864e5); const during=now>=start&&now<end;
   const t=totals();
   const todayIso=new Date(now.getTime()+2*3600e3).toISOString().slice(0,10);
-  const upcoming=fixedAll().filter(f=>!f.soft&&!(f.away&&f.day!=="2027-03-12")&&(during?f.day>=todayIso:true));
+  const upcoming=fixedAll().filter(f=>!f.soft&&!f.busy&&!(f.away&&f.day!=="2027-03-12")&&(during?f.day>=todayIso:true));
   const pend=S.me?liveIdeas().filter(i=>!myVote(i)):[];
   const log=S.log.slice(0,6);
   return `${banner()}
@@ -654,9 +658,26 @@ function viewNow(){
       </div>
       <div class="section-head" style="margin-top:22px"><h2>Latest changes</h2></div>
       <div class="card">${log.length?log.map(logRow).join(""):`<div class="logrow muted">Every change to the plan shows up here, with who made it and an undo.</div>`}</div>
+      ${inviteLinks()}
     </section>`:nextInPlan()}
   </div>`;
 }
+/* the link for each group, so a boet can send it when someone asks; the codes come from the API, never from the page */
+const LINK_GROUPS=[["boets","Boets","Everything"],["steen","Steen","Raya: sees it all, approves and Jadds ideas"],["sidekicks","Side Kicks","Close friends on the trip: see it all and Juggest"],["locals","Locals","Our South African friends: tips and local verdicts"],["public","Public itinerary","Anyone: only what's decided, wedding days just say Busy"]];
+function inviteLinks(){
+  if(!isBoet())return "";
+  if(S.links===undefined){S.links=null;fetch("/api/links",{cache:"no-store",headers:{"x-trip-key":S.key}}).then(r=>r.ok?r.json():{}).then(j=>{S.links=j;render()}).catch(()=>{S.links={};render()})}
+  const L=S.links||{};
+  return `<div class="section-head" style="margin-top:22px"><h2>Invite links</h2></div>
+    <div class="card">${LINK_GROUPS.map(([k,l,d])=>`<div class="logrow"><div class="t"><b>${l}</b><div class="small muted">${d}</div></div>${L[k]?`<button class="btn sm" type="button" data-sendlink="${k}">${I.share}Send</button>`:`<span class="small muted">${S.links?"Not set":"…"}</span>`}</div>`).join("")}</div>`;
+}
+async function sendLink(k){
+  const url=(S.links||{})[k]; if(!url)return;
+  const label=(LINK_GROUPS.find(g=>g[0]===k)||[,"La Casa De Seda"])[1];
+  try{if(navigator.share){await navigator.share({title:"La Casa De Seda in Cape Town",text:k==="public"?"Our Cape Town itinerary":`Your link to La Casa De Seda in Cape Town (${label})`,url});return}}catch(e){if(e&&e.name==="AbortError")return}
+  try{await navigator.clipboard.writeText(url);toast(label+" link copied")}catch(e){toast(url)}
+}
+
 /* Now, for everyone who isn't a boet: what's coming up in the plan */
 function nextInPlan(){
   const order=["morning","afternoon","evening"];
@@ -734,7 +755,7 @@ function viewIdeas(){
   if(f==="liked")list=list.filter(i=>BOETS.every(b=>(i.votes||{})[b]===1));
   if(f==="open")list=list.filter(i=>!i.plan);
   if(f==="planned")list=list.filter(i=>i.plan);
-  if(f==="local")list=list.filter(i=>isLocalName(i.by)||Object.values(i.local||{}).includes("must"));
+  if(f==="local")list=list.filter(i=>isLocalBy(i)||Object.values(i.local||{}).includes("must"));
   if(f==="vote"&&S.me)list=list.filter(i=>!myVote(i));
   if(S.ideaType)list=list.filter(i=>i.type===S.ideaType);
   list.sort((a,b)=>S.ideaSort==="price"?((a.priceZAR??1e9)-(b.priceZAR??1e9)):S.ideaSort==="new"?(b.createdAt||0)-(a.createdAt||0):score(b)-score(a)||(b.createdAt||0)-(a.createdAt||0));
@@ -788,7 +809,7 @@ function viewEat(){
   const all=liveEats(); let list=all;
   const f=S.eatFilter;
   if(f==="want")list=list.filter(e=>(e.want||[]).includes(S.me));
-  if(f==="local")list=list.filter(e=>isLocalName(e.by));
+  if(f==="local")list=list.filter(e=>isLocalBy(e));
   if(f==="book")list=list.filter(e=>e.booking);
   if(f==="planned")list=list.filter(e=>e.plan);
   if(S.eatArea)list=list.filter(e=>e.area===S.eatArea);
@@ -815,7 +836,7 @@ function eatCard(e){
       <div class="meta">${e.area?`<span>${I.pin}<a href="${esc(spotLink(e))}" target="_blank" rel="noopener">${esc(e.area)}</a></span>`:`<span>${I.pin}<a href="${esc(spotLink(e))}" target="_blank" rel="noopener">Map</a></span>`}<span>by ${esc(e.by||"?")}</span></div>
       ${e.order?`<p><b>What to order:</b> ${esc(e.order)}</p>`:""}
       ${e.note?`<p>${esc(e.note)}</p>`:""}
-      ${e.booking||isLocalName(e.by)?`<div class="badges">${isLocalName(e.by)?`<span class="tag ink">Local pick</span>`:""}${e.booking?`<span class="tag hot">Book ahead</span>`:""}</div>`:""}
+      ${e.booking||isLocalName(e.by)?`<div class="badges">${isLocalBy(e)?`<span class="tag ink">Local pick</span>`:""}${kickTag(e)}${e.booking?`<span class="tag hot">Book ahead</span>`:""}</div>`:""}
     </div>
     ${e.plan?`<div class="planned">${I.plan}<span>In the plan · ${mealName(e.plan.slot)} on ${dW(e.plan.day)} ${dNum(e.plan.day)}</span>${can("edit")?`<button type="button" data-unplaneat="${e.id}">Jemove</button>`:""}</div>`:""}
     <div class="idea-f">
@@ -1014,6 +1035,7 @@ document.getElementById("main").addEventListener("click",e=>{
   else if(ds.act==="newidea")ideaSheet(null);
   else if(ds.act==="who")nameSheet();
   else if(ds.act==="share")shareItinerary();
+  else if(ds.sendlink)sendLink(ds.sendlink);
   else if(ds.act==="invite")inviteSheet();
   else if(ds.act==="half")halfSheet();
   else if(ds.act==="bach")bachSheet();
@@ -1040,9 +1062,11 @@ function whoSheet(){
 function nameSheet(){
   if(S.role==="boets")return whoSheet();
   if(S.role==="steen")return toast("You're Steen here. Welcome!");
-  if(S.role!=="locals")return inviteSheet();
-  // names already used by locals, so on a new phone they tap theirs instead of typing it again
-  const known=[...new Set(liveIdeas().flatMap(i=>[i.by,...Object.values(i.comments||{}).map(c=>c.by)]).filter(n=>n&&!BOETS.includes(n)&&n!==STEEN))].sort();
+  if(S.role!=="locals"&&S.role!=="sidekicks")return inviteSheet();
+  // names already used in this group, so on a new phone they tap theirs instead of typing it again (older entries have no role: locals)
+  const mine=r=>(r||"locals")===S.role;
+  const docs=[...liveIdeas(),...liveEats()];
+  const known=[...new Set([...docs.filter(d=>mine(d.byRole)).map(d=>d.by),...docs.flatMap(d=>Object.values(d.comments||{}).filter(c=>mine(c.role)).map(c=>c.by))].filter(n=>n&&!BOETS.includes(n)&&n!==STEEN))].sort();
   openSheet("What's your name?",`<p class="muted" style="margin-top:0">So the boets know who Juggested what. You only do this once on this phone.</p>
     ${known.length?`<div class="field"><label>Been here before? Tap your name</label><div class="row">${known.map(n=>`<button class="btn" type="button" data-known="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>`:""}
     <form id="nf"><div class="field"><label for="n-name">${known.length?"Or type it":"Your name"}</label><input id="n-name" maxlength="30" autocomplete="given-name" required value="${esc(S.me||"")}"></div><button class="btn primary" type="submit">Save</button></form>`,
@@ -1210,7 +1234,7 @@ async function refresh(){
     S.role=ROLE_VIEWS[d.role]?d.role:"public"; ls.set("lcds_role",S.role); fixMe();
   }catch(e){ if(S.online!==false){S.online=false;S.ready=true;render()} return }
   render();
-  if(!S.asked&&!S.me&&(S.role==="boets"||S.role==="locals")){S.asked=true;nameSheet()}
+  if(!S.asked&&!S.me&&(S.role==="boets"||S.role==="locals"||S.role==="sidekicks")){S.asked=true;nameSheet()}
 }
 async function apiWrite(body){
   const r=await fetch("/api/write",{method:"POST",headers:{"content-type":"application/json","x-trip-key":S.key},body:JSON.stringify(body)});
