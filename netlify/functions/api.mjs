@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { createHash } from "node:crypto";
 
 const BOETS = ["Ben", "Guigo", "Tho", "Beny"];
 const STEEN = "Steen";
@@ -17,7 +18,7 @@ function nameOk(role, n) {
   if (typeof n !== "string") return false;
   if (role === "boets") return BOETS.includes(n);
   if (role === "steen") return n === STEEN;
-  if (role === "locals") return n.trim() === n && n.length >= 1 && n.length <= 30 && !BOETS.includes(n) && n !== STEEN;
+  if (role === "locals" || role === "public") return n.trim() === n && n.length >= 1 && n.length <= 30 && !BOETS.includes(n) && n !== STEEN;
   return false;
 }
 const KEY_RE = /^(ideas|eats|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
@@ -119,7 +120,7 @@ async function state(role) {
   const logKeys = keys.filter((k) => k.startsWith("log/")).sort().reverse();
   const old = logKeys.slice(60);
   if (old.length) await Promise.all(old.map((k) => s.delete(k)));
-  const wanted = keys.filter((k) => !k.startsWith("meta/") && !old.includes(k));
+  const wanted = keys.filter((k) => !k.startsWith("meta/") && !k.startsWith("rate/") && !old.includes(k));
   const vals = await Promise.all(wanted.map((k) => s.get(k, { type: "json" }).catch(() => null)));
   const out = { ideas: {}, eats: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {}, want: {} };
   wanted.forEach((k, i) => {
@@ -152,15 +153,15 @@ async function state(role) {
 // what each role gets to see; anything not listed here never leaves the server
 function forRole(full, role) {
   if (role === "boets") return full;
-  const live = full.ideas.filter((i) => !i.deleted);
-  const eats = full.eats.filter((e) => !e.deleted);
+  // friends' suggestions wait for a boet to approve them, so only the boets see them while pending
+  const live = full.ideas.filter((i) => !i.deleted && !i.pending);
+  const eats = full.eats.filter((e) => !e.deleted && !e.pending);
   const config = { halfDay: full.config.halfDay || null };
   if (role === "public") {
-    const decided = live.filter((i) => i.plan && i.plan.day)
-      .map(({ id, title, type, duration, area, note, priceZAR, plan }) => ({ id, title, type, duration, area, note, priceZAR, plan }));
-    // the restaurant list is for invited people; the public only sees a meal once it is in the plan
-    const meals = eats.filter((e) => e.plan && e.plan.day).map(({ id, name, area, plan }) => ({ id, name, area, plan }));
-    return { ideas: decided, eats: meals, stays: [], log: [], config };
+    // only the idea itself: no votes, comments, seals, verdicts or who suggested it
+    const ideas = live.map(({ id, title, type, duration, area, note, priceZAR, plan }) => ({ id, title, type, duration, area, note, priceZAR, plan }));
+    const spots = eats.map(({ id, name, cuisine, area, price, link, order, booking, note, plan }) => ({ id, name, cuisine, area, price, link, order, booking, note, plan }));
+    return { ideas, eats: spots, stays: [], log: [], config };
   }
   // Steen and locals: the booked stay shows only its name, area and photos (no address, link or price)
   const stays = full.stays.filter((s) => s.booked).map(({ id, name, area, photos }) => ({ id, name, area, photos, booked: true }));
@@ -203,10 +204,10 @@ const PLAN_DAY = /^2027-03-(1[05-9]|2[0-4]|11)$/;
 const PLAN_SLOTS = ["morning", "afternoon", "evening"];
 
 async function write(req, role) {
-  if (role === "public") return json({ error: "read only" }, 403);
   const body = await req.json().catch(() => null);
   if (!body || JSON.stringify(body).length > 200000) return json({ error: "bad request" }, 400);
   const { op, path, data } = body;
+  if (role === "public") return publicWrite(op, path, data, req);
   if (role !== "boets") return guestWrite(op, path, data, role);
   const s = store();
   if (op === "add") {
@@ -231,6 +232,34 @@ async function write(req, role) {
     return json({ ok: true });
   }
   return json({ error: "bad op" }, 400);
+}
+
+// Anyone with the public link may Juggest an idea or a spot, signed with a name. It waits for a boet's
+// approval, and each connection gets a few per day so a shared link can't flood the list.
+const PUBLIC_PER_DAY = 5;
+async function publicWrite(op, path, data, req) {
+  if (op !== "add" || (path !== "ideas" && path !== "eats")) return json({ error: "read only" }, 403);
+  if (!data || !nameOk("public", data.by)) return json({ error: "name needed" }, 400);
+  const main = path === "ideas" ? data.title : data.name;
+  if (typeof main !== "string" || !main.trim()) return json({ error: "bad suggestion" }, 400);
+  const s = store();
+  const day = new Date().toISOString().slice(0, 10);
+  const ip = req.headers.get("x-nf-client-connection-ip") || req.headers.get("x-forwarded-for") || "unknown";
+  const rk = `rate/${createHash("sha256").update(ip + day).digest("hex").slice(0, 20)}`;
+  const used = (await s.get(rk, { type: "json" }).catch(() => null))?.n || 0;
+  if (used >= PUBLIC_PER_DAY) return json({ error: "too many today" }, 429);
+  await s.setJSON(rk, { n: used + 1, day });
+  const doc = { by: data.by, byFriend: true, pending: true, createdAt: Date.now(), plan: null, deleted: false };
+  if (path === "ideas") {
+    for (const f of IDEA_FIELDS) if (data[f] !== undefined) doc[f] = f === "priceZAR" ? (data[f] == null ? null : +data[f]) : String(data[f]).slice(0, 400);
+  } else {
+    for (const f of EAT_FIELDS) doc[f] = String(data[f] ?? "").slice(0, 400);
+    doc.booking = !!data.booking;
+    doc.price = [1, 2, 3, 4].includes(data.price) ? data.price : null;
+  }
+  const id = rid();
+  await s.setJSON(`${path}/${id}`, doc);
+  return json({ id, pending: true });
 }
 
 // Steen and locals: Juggest a new idea (signed with their own name) and comment; nothing else
