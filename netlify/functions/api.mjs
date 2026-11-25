@@ -20,8 +20,8 @@ function nameOk(role, n) {
   if (role === "locals" || role === "sidekicks") return n.trim() === n && n.length >= 1 && n.length <= 30 && !BOETS.includes(n) && n !== STEEN;
   return false;
 }
-const KEY_RE = /^(ideas|eats|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
-const COLL_RE = /^(ideas|eats|stays|log)$/;
+const KEY_RE = /^(ideas|eats|notes|stays|log|config)\/[A-Za-z0-9_\-.]{1,80}$/;
+const COLL_RE = /^(ideas|eats|notes|stays|log)$/;
 const store = () => getStore({ name: "trip", consistency: "strong" });
 
 const json = (data, status = 200) =>
@@ -121,12 +121,12 @@ async function state(role) {
   if (old.length) await Promise.all(old.map((k) => s.delete(k)));
   const wanted = keys.filter((k) => !k.startsWith("meta/") && !old.includes(k));
   const vals = await Promise.all(wanted.map((k) => s.get(k, { type: "json" }).catch(() => null)));
-  const out = { ideas: {}, eats: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {}, want: {} };
+  const out = { ideas: {}, eats: {}, notes: {}, stays: {}, log: [], config: {}, votes: {}, comments: {}, steen: {}, local: {}, going: {}, want: {} };
   wanted.forEach((k, i) => {
     const v = vals[i];
     if (!v) return;
     const [c, a, b] = k.split("/");
-    if (c === "ideas" || c === "stays" || c === "eats") out[c][a] = { id: a, ...v };
+    if (c === "ideas" || c === "stays" || c === "eats" || c === "notes") out[c][a] = { id: a, ...v };
     else if (c === "log") out.log.push({ id: a, ...v });
     else if (c === "config" && a === "trip") out.config = v;
     else if (c === "votes") (out.votes[a] ||= {})[b] = v.v;
@@ -142,6 +142,7 @@ async function state(role) {
   const full = {
     ideas: Object.values(out.ideas).map(merge),
     stays: Object.values(out.stays).map(merge),
+    notes: Object.values(out.notes),
     eats: Object.values(out.eats).map((e) => ({ ...e, comments: out.comments[e.id] || {}, want: (out.want[e.id] || []).sort() })),
     log: out.log.sort((x, y) => (y.at || 0) - (x.at || 0)).slice(0, 40),
     config: out.config,
@@ -154,17 +155,19 @@ function forRole(full, role) {
   if (role === "boets") return full;
   const live = full.ideas.filter((i) => !i.deleted);
   const eats = full.eats.filter((e) => !e.deleted);
+  // heads-ups (birthdays, holidays, reminders) are for invited people only
+  const notes = full.notes.filter((n) => !n.deleted);
   const config = { halfDay: full.config.halfDay || null };
   if (role === "public") {
     const decided = live.filter((i) => i.plan && i.plan.day)
       .map(({ id, title, type, duration, area, note, priceZAR, plan }) => ({ id, title, type, duration, area, note, priceZAR, plan }));
     // the restaurant list is for invited people; the public only sees a meal once it is in the plan
     const meals = eats.filter((e) => e.plan && e.plan.day).map(({ id, name, area, plan }) => ({ id, name, area, plan }));
-    return { ideas: decided, eats: meals, stays: [], log: [], config };
+    return { ideas: decided, eats: meals, notes: [], stays: [], log: [], config };
   }
   // Steen and locals: the booked stay shows only its name, area and photos (no address, link or price)
   const stays = full.stays.filter((s) => s.booked).map(({ id, name, area, photos }) => ({ id, name, area, photos, booked: true }));
-  return { ideas: live, eats, stays, log: [], config };
+  return { ideas: live, eats, notes, stays, log: [], config };
 }
 
 async function setWant(s, id, want, role) {

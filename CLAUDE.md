@@ -10,6 +10,7 @@ Site da viagem da La Casa De Seda para Cape Town, 10 a 24/03/2027.
   - `GET /api/state` | `POST /api/write {op: set|update|add, path, data}` | `POST /api/photo` | `GET /api/photo/:id`
   - Votos ficam em `votes/<id>/<nome>` e comentários em `comments/<id>/<cid>` (chaves separadas para evitar sobrescrita)
 - Aba Eat (`eats/<id>`): dicas de restaurante de boets, Steen e locais (nome, comida, bairro, $ a $$$$, link, o que pedir, reservar). "Want to go" em `want/<id>/<nome>`. Só boets editam e colocam no plano (almoço = slot afternoon, jantar = evening). O público não vê a aba, só a refeição que entrou no plano. As antigas ideias "Food" foram movidas para Eat (passo `meta/eats-move`) e o tipo Food saiu de Ideas
+- Heads-ups (`notes/<id>`): avisos de dia inteiro que não ocupam horário (aniversário, feriado, lembrete), com `day`, `until` opcional, `kind` birthday/holiday/reminder e nota. Só boets criam, editam e apagam. Boets, Steen, Side Kicks e locais veem (faixa no topo do dia no Plan, ponto na faixa de dias, próximos na Now); o público não vê. Link de calendário de dia inteiro
 - O front faz polling a cada 30s com a aba visível (e atualiza na hora depois de cada gravação e ao voltar para o app)
 - Perfis por link de convite (`/?k=CODIGO`), sem login. O código fica no localStorage e sai da barra de endereço, então uma URL copiada é sempre a pública
   - `boets` (Ben, Guigo, Tho, Beny): tudo
